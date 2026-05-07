@@ -92,6 +92,112 @@ const IMPORTANT_NAMES = new Set([
 
 class FatalConfigurationError extends Error {}
 
+const SUPPORTED_SCAN_TYPES = new Set(['asvs-l1']);
+
+const ASVS_L1_CONTROLS = [
+  {
+    id: 'ASVS-L1-ARCH-01',
+    category: 'Architecture',
+    title: 'Security-relevant design and configuration evidence is present',
+    severity: 'medium',
+    passWhen: ['securityFiles'],
+    recommendation: 'Add security documentation or configuration that describes authentication, authorization, data protection, and operational controls.'
+  },
+  {
+    id: 'ASVS-L1-AUTHN-01',
+    category: 'Authentication',
+    title: 'Authentication mechanisms are visible in application evidence',
+    severity: 'high',
+    passWhen: ['authn'],
+    recommendation: 'Use a standard authentication provider or framework and include the authentication entry points in the scanned evidence paths.'
+  },
+  {
+    id: 'ASVS-L1-SESSION-01',
+    category: 'Session Management',
+    title: 'Session or token handling includes protective attributes',
+    severity: 'high',
+    passWhen: ['sessionProtection', 'managedAuth'],
+    recommendation: 'Set Secure, HttpOnly, and SameSite on cookies or rely on a managed token/session provider with documented protections.'
+  },
+  {
+    id: 'ASVS-L1-ACCESS-01',
+    category: 'Access Control',
+    title: 'Authorization checks are present for protected operations',
+    severity: 'high',
+    passWhen: ['authorization'],
+    recommendation: 'Add explicit role, permission, ownership, policy, or middleware checks around protected routes and data operations.'
+  },
+  {
+    id: 'ASVS-L1-VALIDATION-01',
+    category: 'Validation',
+    title: 'Request and data validation controls are present',
+    severity: 'medium',
+    passWhen: ['validation'],
+    recommendation: 'Validate request bodies, parameters, and persisted data with schema validation, framework validators, or equivalent typed constraints.'
+  },
+  {
+    id: 'ASVS-L1-CRYPTO-01',
+    category: 'Cryptography',
+    title: 'Cryptographic primitives are standard and no weak algorithms are detected',
+    severity: 'high',
+    failWhen: ['weakCrypto'],
+    passWhen: ['crypto'],
+    recommendation: 'Use platform cryptography libraries and remove MD5, SHA-1 for security decisions, DES, RC4, and hand-rolled cryptographic code.'
+  },
+  {
+    id: 'ASVS-L1-ERRORS-LOGGING-01',
+    category: 'Errors and Logging',
+    title: 'Error handling or security logging is visible',
+    severity: 'medium',
+    passWhen: ['logging'],
+    recommendation: 'Add structured error handling and security-relevant logging for authentication, authorization, and sensitive workflow failures.'
+  },
+  {
+    id: 'ASVS-L1-DATA-01',
+    category: 'Data Protection',
+    title: 'Sensitive data and secrets are not hard-coded in source evidence',
+    severity: 'high',
+    failWhen: ['hardcodedSecret'],
+    passWhen: ['secretManagement'],
+    recommendation: 'Move secrets to CI or runtime secret storage and document how sensitive data is protected at rest and in transit.'
+  },
+  {
+    id: 'ASVS-L1-COMMS-01',
+    category: 'Communications',
+    title: 'Transport security or secure endpoint configuration is present',
+    severity: 'medium',
+    failWhen: ['insecureTransport'],
+    passWhen: ['transportSecurity'],
+    recommendation: 'Use HTTPS endpoints, enforce TLS in deployment, and avoid insecure HTTP service URLs except for local development.'
+  },
+  {
+    id: 'ASVS-L1-HEADERS-01',
+    category: 'Headers and Browser Controls',
+    title: 'Browser-facing security headers are configured',
+    severity: 'medium',
+    failWhen: ['wideCors'],
+    passWhen: ['securityHeaders'],
+    recommendation: 'Configure CSP, HSTS, X-Content-Type-Options, frame protection, and narrow CORS origins for browser-facing services.'
+  },
+  {
+    id: 'ASVS-L1-FILES-01',
+    category: 'Files and Resources',
+    title: 'File upload and path handling controls are present when file handling exists',
+    severity: 'medium',
+    failWhen: ['unsafeFileHandling'],
+    passWhen: ['fileControls'],
+    recommendation: 'Validate upload type and size, store uploads outside executable paths, and normalize path operations before file access.'
+  },
+  {
+    id: 'ASVS-L1-DEPS-01',
+    category: 'Supply Chain',
+    title: 'Dependency manifests or lockfiles are present for review',
+    severity: 'medium',
+    passWhen: ['dependencyManifest'],
+    recommendation: 'Commit dependency manifests and lockfiles, and enable dependency update or vulnerability alerting for the repository.'
+  }
+];
+
 function inputName(name) {
   return `INPUT_${name.replace(/ /g, '_').toUpperCase()}`;
 }
@@ -130,6 +236,12 @@ function parseList(value) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function cleanScanTypes(value) {
+  const requested = parseList(value).map((item) => item.toLowerCase());
+  const supported = requested.filter((item) => SUPPORTED_SCAN_TYPES.has(item));
+  return supported.length > 0 ? supported : ['asvs-l1'];
 }
 
 function parseNumber(value, fallback) {
@@ -229,6 +341,7 @@ function scanRepository(root, options) {
   const manifests = [];
   const securityFiles = [];
   const localSignals = new Map();
+  const asvsSignals = new Map();
   let bytesIncluded = 0;
   let truncated = false;
 
@@ -242,6 +355,10 @@ function scanRepository(root, options) {
     if (IMPORTANT_NAMES.has(base) || /lock$|lock\.json$|\.lock$/i.test(base)) manifests.push(relativePath);
     if (/security|auth|session|login|password|oauth|oidc|jwt|csrf|cors|dependabot|codeowners/i.test(relativePath)) {
       securityFiles.push(relativePath);
+      addAsvsSignal(asvsSignals, 'securityFiles', relativePath, 'Security-relevant file path');
+    }
+    if (IMPORTANT_NAMES.has(base) || /lock$|lock\.json$|\.lock$/i.test(base)) {
+      addAsvsSignal(asvsSignals, 'dependencyManifest', relativePath, 'Dependency manifest or lockfile');
     }
 
     const remaining = options.maxBytes - bytesIncluded;
@@ -256,6 +373,7 @@ function scanRepository(root, options) {
     if (raw.length > maxForFile) truncated = true;
 
     collectLocalSignals(relativePath, content, localSignals);
+    collectAsvsSignals(relativePath, content, asvsSignals);
     evidence.push({
       path: relativePath,
       sha256: fileHash,
@@ -268,6 +386,7 @@ function scanRepository(root, options) {
   return {
     evidence,
     evidence_truncated: truncated,
+    scan_results: buildScanResults(options.scanTypes, asvsSignals),
     scan_summary: {
       filesDiscovered: files.length,
       filesScanned: evidence.length,
@@ -275,7 +394,9 @@ function scanRepository(root, options) {
       languages,
       manifests: manifests.slice(0, 80),
       securityFiles: securityFiles.slice(0, 80),
-      localFindings: Array.from(localSignals.values())
+      localFindings: Array.from(localSignals.values()),
+      scanTypes: options.scanTypes,
+      unsupportedScanTypes: options.unsupportedScanTypes
     }
   };
 }
@@ -306,6 +427,142 @@ function collectLocalSignals(relativePath, content, signals) {
   }
 }
 
+function addAsvsSignal(signals, name, filePath, detail) {
+  if (!signals.has(name)) {
+    signals.set(name, []);
+  }
+  const entries = signals.get(name);
+  if (!entries.some((entry) => entry.path === filePath && entry.detail === detail)) {
+    entries.push({ path: filePath, detail });
+  }
+}
+
+function collectAsvsSignals(relativePath, content, signals) {
+  if (/firebase|auth0|okta|cognito|passport|nextauth|oauth|oidc|saml|login|signin|authenticate/i.test(content)) {
+    addAsvsSignal(signals, 'authn', relativePath, 'Authentication provider, flow, or handler');
+  }
+  if (/firebase|auth0|okta|cognito|managed identity|identity provider/i.test(content)) {
+    addAsvsSignal(signals, 'managedAuth', relativePath, 'Managed identity or authentication provider');
+  }
+  if (/HttpOnly|SameSite|Secure;|secure\s*:\s*true|sameSite|httpOnly|session.*cookie|csrf/i.test(content)) {
+    addAsvsSignal(signals, 'sessionProtection', relativePath, 'Cookie, CSRF, or session protection');
+  }
+  if (/authorize|authorization|permission|policy|role|rbac|abac|owner_uid|ownerId|require_auth|isAdmin|middleware/i.test(content)) {
+    addAsvsSignal(signals, 'authorization', relativePath, 'Authorization or ownership check');
+  }
+  if (/zod|joi|yup|ajv|pydantic|marshmallow|validator|validate|sanitize|escape|parameterized|prepared statement|req\.body|request\.data/i.test(content)) {
+    addAsvsSignal(signals, 'validation', relativePath, 'Validation, sanitization, or parameterized input handling');
+  }
+  if (/crypto|bcrypt|argon2|scrypt|pbkdf2|sha256|AES-GCM|libsodium|fernet|secrets\./i.test(content)) {
+    addAsvsSignal(signals, 'crypto', relativePath, 'Standard cryptography or password hashing library');
+  }
+  if (/\b(md5|sha1|des|rc4)\b/i.test(content)) {
+    addAsvsSignal(signals, 'weakCrypto', relativePath, 'Potential weak cryptographic algorithm');
+  }
+  if (/logger|logging|audit|console\.(error|warn)|try\s*\{|catch\s*\(|except\s+Exception|HttpsError|raise\s+/i.test(content)) {
+    addAsvsSignal(signals, 'logging', relativePath, 'Error handling or logging signal');
+  }
+  if (/process\.env|secrets\.|Secret Manager|secretmanager|github\.secret|GITHUB_TOKEN|VAX_KEY|api key|api_key/i.test(content)) {
+    addAsvsSignal(signals, 'secretManagement', relativePath, 'Runtime or CI secret handling');
+  }
+  if (/(password|secret|token|api[_-]?key)\s*[:=]\s*['"][^'"]{12,}['"]/i.test(content)) {
+    addAsvsSignal(signals, 'hardcodedSecret', relativePath, 'Potential hard-coded secret value');
+  }
+  if (/https:\/\/|Strict-Transport-Security|forceSSL|redirectToHttps|ssl|tls/i.test(content)) {
+    addAsvsSignal(signals, 'transportSecurity', relativePath, 'TLS or HTTPS configuration');
+  }
+  if (/http:\/\/(?!localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(content)) {
+    addAsvsSignal(signals, 'insecureTransport', relativePath, 'Non-local HTTP URL');
+  }
+  if (/helmet|Content-Security-Policy|Strict-Transport-Security|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Permissions-Policy/i.test(content)) {
+    addAsvsSignal(signals, 'securityHeaders', relativePath, 'Security header configuration');
+  }
+  if (/cors\(\s*\{?[^}]*origin\s*:\s*['"]\*/i.test(content) || /Access-Control-Allow-Origin['"]?\s*[:,]\s*['"]\*/i.test(content)) {
+    addAsvsSignal(signals, 'wideCors', relativePath, 'Wildcard CORS configuration');
+  }
+  if (/upload|multipart|multer|formidable|FileReader|bucket\.blob|storage\.bucket|open\(|readFile|writeFile|path\.join/i.test(content)) {
+    addAsvsSignal(signals, 'fileHandling', relativePath, 'File or object storage handling');
+  }
+  if (/fileSize|limits\s*:|content-type|mime|basename|normalize|secure_filename|allowedExtensions|virus|malware/i.test(content)) {
+    addAsvsSignal(signals, 'fileControls', relativePath, 'File validation or storage control');
+  }
+  if (/path\.(join|resolve)|readFile|writeFile|open\(/i.test(content) && !/normalize|basename|resolve\(/i.test(content)) {
+    addAsvsSignal(signals, 'unsafeFileHandling', relativePath, 'File path operation without obvious normalization');
+  }
+}
+
+function buildScanResults(scanTypes, signals) {
+  const results = {};
+  if (scanTypes.includes('asvs-l1')) {
+    results['asvs-l1'] = buildAsvsL1Result(signals);
+  }
+  return results;
+}
+
+function buildAsvsL1Result(signals) {
+  const controls = ASVS_L1_CONTROLS.map((control) => evaluateAsvsControl(control, signals));
+  const weighted = controls.reduce((total, control) => {
+    const weight = control.severity === 'high' ? 12 : 8;
+    const value = control.result === 'pass' ? weight : control.result === 'partial' ? Math.round(weight * 0.55) : control.result === 'unknown' ? Math.round(weight * 0.25) : 0;
+    return total + value;
+  }, 0);
+  const max = controls.reduce((total, control) => total + (control.severity === 'high' ? 12 : 8), 0);
+  const score = Math.round((weighted / max) * 100);
+  const gaps = controls.filter((control) => control.result === 'gap').length;
+  const unknown = controls.filter((control) => control.result === 'unknown').length;
+  return {
+    id: 'asvs-l1',
+    label: 'OWASP ASVS Level 1',
+    version: '5.0.0',
+    status: gaps > 0 ? 'needs_attention' : unknown > 3 ? 'watch' : 'pass',
+    score,
+    summary: `${controls.length} ASVS L1 control groups evaluated from repository evidence. ${gaps} gaps and ${unknown} unknowns require review.`,
+    controls
+  };
+}
+
+function evaluateAsvsControl(control, signals) {
+  const failEvidence = collectSignalEvidence(signals, control.failWhen || []);
+  if (failEvidence.length > 0) {
+    return asvsControlResult(control, 'gap', failEvidence);
+  }
+  const passEvidence = collectSignalEvidence(signals, control.passWhen || []);
+  if (passEvidence.length > 1) {
+    return asvsControlResult(control, 'pass', passEvidence);
+  }
+  if (passEvidence.length === 1) {
+    return asvsControlResult(control, 'partial', passEvidence);
+  }
+  if (control.id === 'ASVS-L1-FILES-01' && !signals.has('fileHandling')) {
+    return asvsControlResult(control, 'not_applicable', []);
+  }
+  return asvsControlResult(control, 'unknown', []);
+}
+
+function collectSignalEvidence(signals, names) {
+  const evidence = [];
+  for (const name of names) {
+    for (const item of signals.get(name) || []) {
+      evidence.push({ signal: name, ...item });
+    }
+  }
+  return evidence.slice(0, 12);
+}
+
+function asvsControlResult(control, result, evidence) {
+  return {
+    control: control.id,
+    category: control.category,
+    title: control.title,
+    level: 'L1',
+    severity: control.severity,
+    result,
+    evidence,
+    files: Array.from(new Set(evidence.map((item) => item.path))).slice(0, 8),
+    recommendation: result === 'pass' || result === 'not_applicable' ? '' : control.recommendation
+  };
+}
+
 async function getGitHubOidcToken(audience) {
   const requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
   const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
@@ -320,7 +577,7 @@ async function getGitHubOidcToken(audience) {
     }
   });
   if (!response.ok) {
-    throw new Error(`Unable to request GitHub OIDC token: ${response.status} ${await response.text()}`);
+    throw new FatalConfigurationError(`Unable to request GitHub OIDC token: ${response.status} ${await response.text()}`);
   }
   const body = await response.json();
   if (!body.value) {
@@ -347,7 +604,7 @@ async function uploadRun(endpoint, payload) {
     body = { raw: text };
   }
   if (!response.ok) {
-    throw new Error(`VAX upload failed: ${response.status} ${JSON.stringify(body)}`);
+    throw new FatalConfigurationError(`VAX upload failed: ${response.status} ${JSON.stringify(body)}`);
   }
   return body;
 }
@@ -355,7 +612,10 @@ async function uploadRun(endpoint, payload) {
 async function main() {
   const vaxKey = getInput('vax_key') || process.env.VAX_KEY;
   const endpoint = getInput('endpoint', 'https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run');
-  const scanLevels = parseList(getInput('scan_levels', 'asvs-l1,asvs-l2'));
+  const rawScanTypes = getInput('scan_types') || getInput('scan_levels', 'asvs-l1');
+  const requestedScanTypes = parseList(rawScanTypes).map((item) => item.toLowerCase());
+  const scanTypes = cleanScanTypes(rawScanTypes);
+  const unsupportedScanTypes = requestedScanTypes.filter((item) => !SUPPORTED_SCAN_TYPES.has(item));
   const evidencePaths = parseList(getInput('evidence_paths', '.'));
   const maxFiles = parseNumber(getInput('max_files', '120'), 120);
   const maxBytes = parseNumber(getInput('max_bytes', '750000'), 750000);
@@ -367,7 +627,7 @@ async function main() {
 
   const root = process.env.GITHUB_WORKSPACE || process.cwd();
   const oidcToken = await getGitHubOidcToken('vax');
-  const scan = scanRepository(root, { evidencePaths, maxFiles, maxBytes, maxFileBytes });
+  const scan = scanRepository(root, { evidencePaths, maxFiles, maxBytes, maxFileBytes, scanTypes, unsupportedScanTypes });
 
   const payload = {
     vax_key: vaxKey,
@@ -379,25 +639,21 @@ async function main() {
     workflow: process.env.GITHUB_WORKFLOW,
     github_run_id: process.env.GITHUB_RUN_ID,
     github_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
-    scan_levels: scanLevels,
+    scan_types: scanTypes,
+    scan_levels: scanTypes,
     evidence: scan.evidence,
     evidence_truncated: scan.evidence_truncated,
+    scan_results: scan.scan_results,
     scan_summary: scan.scan_summary
   };
 
-  try {
-    const result = await uploadRun(endpoint, payload);
-    const runUrl = result.run_url;
-    setOutput('run_url', runUrl);
-    setOutput('run_id', result.run_id);
+  const result = await uploadRun(endpoint, payload);
+  const runUrl = result.run_url;
+  setOutput('run_url', runUrl);
+  setOutput('run_id', result.run_id);
 
-    console.log(`VAX run URL: ${runUrl}`);
-    addSummary(`## VAX evidence scan\n\nRun URL: [${runUrl}](${runUrl})\n\nFiles scanned: ${scan.scan_summary.filesScanned}\n\nAssessment continues in VAX and will not fail this CI job.`);
-  } catch (error) {
-    const message = error && error.stack ? error.stack : String(error);
-    console.warn(`::warning::${escapeCommand(message)}`);
-    addSummary(`## VAX evidence scan\n\nVAX upload did not complete, so no run URL is available.\n\nFiles scanned locally: ${scan.scan_summary.filesScanned}\n\nError:\n\n\`\`\`\n${message}\n\`\`\``);
-  }
+  console.log(`VAX run URL: ${runUrl}`);
+  addSummary(`## VAX evidence scan\n\nRun URL: [${runUrl}](${runUrl})\n\nScan types: ${scanTypes.join(', ')}\n\nFiles scanned: ${scan.scan_summary.filesScanned}\n\nAssessment continues in VAX and will not fail this CI job.`);
 }
 
 main().catch((error) => {

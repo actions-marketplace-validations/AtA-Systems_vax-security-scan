@@ -12,10 +12,13 @@ inputs:
     description: VAX Firebase function endpoint.
     required: false
     default: https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run
-  scan_levels:
-    description: Comma-separated scan levels. MVP supports asvs-l1 and asvs-l2.
+  scan_types:
+    description: Comma-separated scan types to run. Currently supports asvs-l1.
     required: false
-    default: asvs-l1,asvs-l2
+    default: asvs-l1
+  scan_levels:
+    description: Deprecated alias for scan_types.
+    required: false
   evidence_paths:
     description: Comma-separated files or directories to scan.
     required: false
