@@ -1,0 +1,37 @@
+name: VAX Evidence Scan
+description: Publish CI-collected vendor assurance evidence to VAX.
+author: AtA Systems
+branding:
+  icon: shield
+  color: green
+inputs:
+  vax_key:
+    description: Per-job VAX key. Prefer passing `${{ secrets.VAX_KEY }}`.
+    required: false
+  endpoint:
+    description: VAX Firebase function endpoint.
+    required: false
+    default: https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run
+  scan_levels:
+    description: Comma-separated scan levels. MVP supports asvs-l1 and asvs-l2.
+    required: false
+    default: asvs-l1,asvs-l2
+  evidence_paths:
+    description: Comma-separated files or directories to scan.
+    required: false
+    default: .
+  max_files:
+    description: Maximum number of evidence files to include.
+    required: false
+    default: "120"
+  max_bytes:
+    description: Maximum total evidence content bytes to upload.
+    required: false
+    default: "750000"
+  max_file_bytes:
+    description: Maximum content bytes per evidence file.
+    required: false
+    default: "24000"
+runs:
+  using: node20
+  main: dist/index.js
