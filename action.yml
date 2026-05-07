@@ -13,9 +13,9 @@ inputs:
     required: false
     default: https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run
   scan_types:
-    description: Comma-separated scan types to run. Currently supports asvs-l1.
+    description: Comma-separated scan types to run. Currently supports asvs-l1 and asvs-l2.
     required: false
-    default: asvs-l1
+    default: asvs-l1,asvs-l2
   scan_levels:
     description: Deprecated alias for scan_types.
     required: false

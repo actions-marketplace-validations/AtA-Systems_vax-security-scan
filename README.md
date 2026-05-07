@@ -28,14 +28,14 @@ jobs:
         uses: ata-systems/vax-action@v1
         with:
           vax_key: ${{ secrets.VAX_KEY }}
-          scan_types: asvs-l1
+          scan_types: asvs-l1,asvs-l2
 ```
 
 `id-token: write` is required. VAX uses the per-job key to authorize upload to
 the configured assessment and the GitHub OIDC token to capture where the job ran.
 
-The action currently runs an OWASP ASVS Level 1 evidence scan locally in CI and
-uploads the structured result plus bounded supporting evidence to VAX. The
-action fails for missing runtime requirements such as `VAX_KEY`, OIDC
+The action currently runs OWASP ASVS Level 1 and Level 2 evidence scans locally
+in CI and uploads the structured result plus bounded supporting evidence to VAX.
+The action fails for missing runtime requirements such as `VAX_KEY`, OIDC
 permission, or upload failure. Security assessment gaps are reported on the VAX
 run page instead of failing CI.

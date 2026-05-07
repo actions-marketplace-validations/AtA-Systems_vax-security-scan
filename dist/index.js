@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const ACTION_VERSION = '0.1.0';
+const ACTION_VERSION = '0.0.2';
 const DEFAULT_EXCLUDES = new Set([
   '.git',
   '.hg',
@@ -92,7 +92,7 @@ const IMPORTANT_NAMES = new Set([
 
 class FatalConfigurationError extends Error {}
 
-const SUPPORTED_SCAN_TYPES = new Set(['asvs-l1']);
+const SUPPORTED_SCAN_TYPES = new Set(['asvs-l1', 'asvs-l2']);
 
 const ASVS_L1_CONTROLS = [
   {
@@ -198,6 +198,131 @@ const ASVS_L1_CONTROLS = [
   }
 ];
 
+const ASVS_L2_CONTROLS = [
+  {
+    id: 'ASVS-L2-ARCH-01',
+    category: 'Architecture',
+    title: 'Threat modeling or security architecture evidence is present',
+    level: 'L2',
+    severity: 'medium',
+    passWhen: ['threatModel', 'securityArchitecture'],
+    recommendation: 'Add threat model, abuse-case, trust-boundary, or security architecture documentation for the application.'
+  },
+  {
+    id: 'ASVS-L2-AUTHN-01',
+    category: 'Authentication',
+    title: 'Stronger authentication controls such as MFA or verified identity provider policies are visible',
+    level: 'L2',
+    severity: 'high',
+    passWhen: ['mfa', 'strongIdentityPolicy'],
+    recommendation: 'Require MFA for privileged users and document identity provider password, lockout, recovery, and MFA policies.'
+  },
+  {
+    id: 'ASVS-L2-SESSION-01',
+    category: 'Session Management',
+    title: 'Session expiry, refresh, revocation, or token lifetime controls are visible',
+    level: 'L2',
+    severity: 'high',
+    passWhen: ['sessionLifetime', 'tokenRevocation'],
+    recommendation: 'Configure session idle timeout, absolute timeout, refresh token rotation, and logout or revocation behavior.'
+  },
+  {
+    id: 'ASVS-L2-ACCESS-01',
+    category: 'Access Control',
+    title: 'Centralized authorization policy or middleware protects sensitive operations',
+    level: 'L2',
+    severity: 'high',
+    passWhen: ['centralizedAuthorization', 'policyAuthorization'],
+    recommendation: 'Centralize authorization checks in middleware, policy objects, rules, or guard helpers and apply them consistently.'
+  },
+  {
+    id: 'ASVS-L2-VALIDATION-01',
+    category: 'Validation',
+    title: 'Schema-based validation or typed request validation is used',
+    level: 'L2',
+    severity: 'high',
+    passWhen: ['schemaValidation'],
+    recommendation: 'Use schema validators such as Zod, Joi, AJV, Pydantic, Marshmallow, or framework validation for all external input.'
+  },
+  {
+    id: 'ASVS-L2-CRYPTO-01',
+    category: 'Cryptography',
+    title: 'Key management and approved password hashing or encryption controls are visible',
+    level: 'L2',
+    severity: 'high',
+    failWhen: ['weakCrypto'],
+    passWhen: ['keyManagement', 'passwordHashing', 'modernEncryption'],
+    recommendation: 'Use managed key storage, rotation-capable encryption, and Argon2, bcrypt, scrypt, or PBKDF2 for password hashing.'
+  },
+  {
+    id: 'ASVS-L2-ERRORS-LOGGING-01',
+    category: 'Errors and Logging',
+    title: 'Audit logging exists for security-sensitive events',
+    level: 'L2',
+    severity: 'medium',
+    passWhen: ['auditLogging'],
+    recommendation: 'Record security-relevant authentication, authorization, administrative, and sensitive data access events.'
+  },
+  {
+    id: 'ASVS-L2-DATA-01',
+    category: 'Data Protection',
+    title: 'Secret scanning and sensitive data handling controls are visible',
+    level: 'L2',
+    severity: 'high',
+    failWhen: ['hardcodedSecret'],
+    passWhen: ['secretScanning', 'secretManagement', 'dataClassification'],
+    recommendation: 'Enable secret scanning or equivalent checks and document sensitive data handling, storage, and retention controls.'
+  },
+  {
+    id: 'ASVS-L2-COMMS-01',
+    category: 'Communications',
+    title: 'TLS enforcement and production transport security policy are visible',
+    level: 'L2',
+    severity: 'high',
+    failWhen: ['insecureTransport'],
+    passWhen: ['hsts', 'tlsEnforcement'],
+    recommendation: 'Enforce HTTPS/TLS in production, configure HSTS for browser clients, and avoid cleartext service dependencies.'
+  },
+  {
+    id: 'ASVS-L2-HEADERS-01',
+    category: 'Headers and Browser Controls',
+    title: 'A restrictive browser security header policy is configured',
+    level: 'L2',
+    severity: 'medium',
+    failWhen: ['wideCors'],
+    passWhen: ['contentSecurityPolicy', 'securityHeaders'],
+    recommendation: 'Define CSP and complementary browser headers, and restrict CORS to expected origins.'
+  },
+  {
+    id: 'ASVS-L2-FILES-01',
+    category: 'Files and Resources',
+    title: 'File upload controls include type, size, path, and malware-oriented protections when file handling exists',
+    level: 'L2',
+    severity: 'medium',
+    failWhen: ['unsafeFileHandling'],
+    passWhen: ['fileControls', 'malwareFileControl'],
+    recommendation: 'Add file type and size validation, normalized storage paths, malware scanning, and non-executable upload storage.'
+  },
+  {
+    id: 'ASVS-L2-DEPS-01',
+    category: 'Supply Chain',
+    title: 'Dependency vulnerability automation or update policy is visible',
+    level: 'L2',
+    severity: 'medium',
+    passWhen: ['dependencyAutomation'],
+    recommendation: 'Enable Dependabot, Renovate, GitHub dependency review, or another automated dependency vulnerability workflow.'
+  },
+  {
+    id: 'ASVS-L2-TESTING-01',
+    category: 'Security Testing',
+    title: 'Security tests or static analysis automation are visible',
+    level: 'L2',
+    severity: 'medium',
+    passWhen: ['securityTesting'],
+    recommendation: 'Add SAST, dependency review, secret scanning, or targeted security tests to CI.'
+  }
+];
+
 function inputName(name) {
   return `INPUT_${name.replace(/ /g, '_').toUpperCase()}`;
 }
@@ -241,7 +366,7 @@ function parseList(value) {
 function cleanScanTypes(value) {
   const requested = parseList(value).map((item) => item.toLowerCase());
   const supported = requested.filter((item) => SUPPORTED_SCAN_TYPES.has(item));
-  return supported.length > 0 ? supported : ['asvs-l1'];
+  return supported.length > 0 ? supported : ['asvs-l1', 'asvs-l2'];
 }
 
 function parseNumber(value, fallback) {
@@ -438,8 +563,20 @@ function addAsvsSignal(signals, name, filePath, detail) {
 }
 
 function collectAsvsSignals(relativePath, content, signals) {
+  if (/threat model|threatmodel|abuse case|trust boundary|data flow|security architecture|secure design/i.test(content)) {
+    addAsvsSignal(signals, 'threatModel', relativePath, 'Threat model, abuse case, or trust boundary evidence');
+  }
+  if (/architecture decision|ADR|security architecture|trust boundary|data flow diagram|DFD/i.test(content)) {
+    addAsvsSignal(signals, 'securityArchitecture', relativePath, 'Security architecture documentation');
+  }
   if (/firebase|auth0|okta|cognito|passport|nextauth|oauth|oidc|saml|login|signin|authenticate/i.test(content)) {
     addAsvsSignal(signals, 'authn', relativePath, 'Authentication provider, flow, or handler');
+  }
+  if (/mfa|multi-factor|multifactor|2fa|totp|webauthn|passkey|authenticator/i.test(content)) {
+    addAsvsSignal(signals, 'mfa', relativePath, 'MFA or phishing-resistant authentication signal');
+  }
+  if (/password policy|lockout|account recovery|identity provider policy|conditional access|step-up/i.test(content)) {
+    addAsvsSignal(signals, 'strongIdentityPolicy', relativePath, 'Identity provider or account policy');
   }
   if (/firebase|auth0|okta|cognito|managed identity|identity provider/i.test(content)) {
     addAsvsSignal(signals, 'managedAuth', relativePath, 'Managed identity or authentication provider');
@@ -447,14 +584,38 @@ function collectAsvsSignals(relativePath, content, signals) {
   if (/HttpOnly|SameSite|Secure;|secure\s*:\s*true|sameSite|httpOnly|session.*cookie|csrf/i.test(content)) {
     addAsvsSignal(signals, 'sessionProtection', relativePath, 'Cookie, CSRF, or session protection');
   }
+  if (/idle timeout|absolute timeout|session timeout|maxAge|max_age|expiresIn|expiration|exp\s*:|refresh token|token lifetime/i.test(content)) {
+    addAsvsSignal(signals, 'sessionLifetime', relativePath, 'Session or token lifetime control');
+  }
+  if (/revoke|revocation|logout|invalidate|blacklist|refresh token rotation|rotate refresh/i.test(content)) {
+    addAsvsSignal(signals, 'tokenRevocation', relativePath, 'Token/session revocation or rotation');
+  }
   if (/authorize|authorization|permission|policy|role|rbac|abac|owner_uid|ownerId|require_auth|isAdmin|middleware/i.test(content)) {
     addAsvsSignal(signals, 'authorization', relativePath, 'Authorization or ownership check');
+  }
+  if (/middleware|guard|policy|rules_version|firestore\.rules|storage\.rules|beforeEach|require_auth|requireRole|can\(|authorize\(/i.test(content)) {
+    addAsvsSignal(signals, 'centralizedAuthorization', relativePath, 'Centralized authorization guard, rules, or middleware');
+  }
+  if (/rbac|abac|policy|permission matrix|least privilege|deny by default|allow read, write: if/i.test(content)) {
+    addAsvsSignal(signals, 'policyAuthorization', relativePath, 'Policy-based authorization signal');
   }
   if (/zod|joi|yup|ajv|pydantic|marshmallow|validator|validate|sanitize|escape|parameterized|prepared statement|req\.body|request\.data/i.test(content)) {
     addAsvsSignal(signals, 'validation', relativePath, 'Validation, sanitization, or parameterized input handling');
   }
+  if (/zod|joi|yup|ajv|pydantic|marshmallow|schema|json schema|typebox|class-validator|FormRequest|serializer/i.test(content)) {
+    addAsvsSignal(signals, 'schemaValidation', relativePath, 'Schema-based or typed validation');
+  }
   if (/crypto|bcrypt|argon2|scrypt|pbkdf2|sha256|AES-GCM|libsodium|fernet|secrets\./i.test(content)) {
     addAsvsSignal(signals, 'crypto', relativePath, 'Standard cryptography or password hashing library');
+  }
+  if (/argon2|bcrypt|scrypt|pbkdf2/i.test(content)) {
+    addAsvsSignal(signals, 'passwordHashing', relativePath, 'Password hashing algorithm');
+  }
+  if (/AES-GCM|AES-256-GCM|libsodium|xchacha|fernet|envelope encryption|KMS|Cloud KMS|Key Vault|Secrets Manager|Secret Manager/i.test(content)) {
+    addAsvsSignal(signals, 'keyManagement', relativePath, 'Managed keys or modern encryption');
+  }
+  if (/AES-GCM|libsodium|xchacha|fernet|envelope encryption/i.test(content)) {
+    addAsvsSignal(signals, 'modernEncryption', relativePath, 'Modern authenticated encryption signal');
   }
   if (/\b(md5|sha1|des|rc4)\b/i.test(content)) {
     addAsvsSignal(signals, 'weakCrypto', relativePath, 'Potential weak cryptographic algorithm');
@@ -462,8 +623,17 @@ function collectAsvsSignals(relativePath, content, signals) {
   if (/logger|logging|audit|console\.(error|warn)|try\s*\{|catch\s*\(|except\s+Exception|HttpsError|raise\s+/i.test(content)) {
     addAsvsSignal(signals, 'logging', relativePath, 'Error handling or logging signal');
   }
+  if (/audit|security event|auth.*event|authorization.*event|admin.*event|sensitive.*access/i.test(content)) {
+    addAsvsSignal(signals, 'auditLogging', relativePath, 'Security event or audit logging');
+  }
   if (/process\.env|secrets\.|Secret Manager|secretmanager|github\.secret|GITHUB_TOKEN|VAX_KEY|api key|api_key/i.test(content)) {
     addAsvsSignal(signals, 'secretManagement', relativePath, 'Runtime or CI secret handling');
+  }
+  if (/secret scanning|gitleaks|trufflehog|detect-secrets|push protection|secretlint/i.test(content)) {
+    addAsvsSignal(signals, 'secretScanning', relativePath, 'Secret scanning automation');
+  }
+  if (/data classification|retention|PII|personal data|sensitive data|DLP|privacy/i.test(content)) {
+    addAsvsSignal(signals, 'dataClassification', relativePath, 'Sensitive data handling or classification');
   }
   if (/(password|secret|token|api[_-]?key)\s*[:=]\s*['"][^'"]{12,}['"]/i.test(content)) {
     addAsvsSignal(signals, 'hardcodedSecret', relativePath, 'Potential hard-coded secret value');
@@ -471,11 +641,20 @@ function collectAsvsSignals(relativePath, content, signals) {
   if (/https:\/\/|Strict-Transport-Security|forceSSL|redirectToHttps|ssl|tls/i.test(content)) {
     addAsvsSignal(signals, 'transportSecurity', relativePath, 'TLS or HTTPS configuration');
   }
+  if (/Strict-Transport-Security|HSTS/i.test(content)) {
+    addAsvsSignal(signals, 'hsts', relativePath, 'HSTS configuration');
+  }
+  if (/forceSSL|redirectToHttps|httpsOnly|minimum TLS|min_tls|sslmode|requireSSL|secure: always/i.test(content)) {
+    addAsvsSignal(signals, 'tlsEnforcement', relativePath, 'TLS enforcement configuration');
+  }
   if (/http:\/\/(?!localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(content)) {
     addAsvsSignal(signals, 'insecureTransport', relativePath, 'Non-local HTTP URL');
   }
   if (/helmet|Content-Security-Policy|Strict-Transport-Security|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Permissions-Policy/i.test(content)) {
     addAsvsSignal(signals, 'securityHeaders', relativePath, 'Security header configuration');
+  }
+  if (/Content-Security-Policy|contentSecurityPolicy|default-src|script-src|frame-ancestors/i.test(content)) {
+    addAsvsSignal(signals, 'contentSecurityPolicy', relativePath, 'Content Security Policy');
   }
   if (/cors\(\s*\{?[^}]*origin\s*:\s*['"]\*/i.test(content) || /Access-Control-Allow-Origin['"]?\s*[:,]\s*['"]\*/i.test(content)) {
     addAsvsSignal(signals, 'wideCors', relativePath, 'Wildcard CORS configuration');
@@ -486,21 +665,33 @@ function collectAsvsSignals(relativePath, content, signals) {
   if (/fileSize|limits\s*:|content-type|mime|basename|normalize|secure_filename|allowedExtensions|virus|malware/i.test(content)) {
     addAsvsSignal(signals, 'fileControls', relativePath, 'File validation or storage control');
   }
+  if (/virus|malware|clamav|yara|quarantine|content disarm|sandbox/i.test(content)) {
+    addAsvsSignal(signals, 'malwareFileControl', relativePath, 'Malware-oriented file handling control');
+  }
   if (/path\.(join|resolve)|readFile|writeFile|open\(/i.test(content) && !/normalize|basename|resolve\(/i.test(content)) {
     addAsvsSignal(signals, 'unsafeFileHandling', relativePath, 'File path operation without obvious normalization');
+  }
+  if (/dependabot|renovate|dependency-review|npm audit|pip-audit|safety|osv-scanner|snyk|github\/codeql-action/i.test(content) || /dependabot|renovate/i.test(relativePath)) {
+    addAsvsSignal(signals, 'dependencyAutomation', relativePath, 'Dependency vulnerability or update automation');
+  }
+  if (/codeql|semgrep|sast|static analysis|dependency-review|gitleaks|trufflehog|zap|security test|security scan|osv-scanner|snyk/i.test(content)) {
+    addAsvsSignal(signals, 'securityTesting', relativePath, 'Security testing or scanning automation');
   }
 }
 
 function buildScanResults(scanTypes, signals) {
   const results = {};
   if (scanTypes.includes('asvs-l1')) {
-    results['asvs-l1'] = buildAsvsL1Result(signals);
+    results['asvs-l1'] = buildAsvsResult('asvs-l1', 'OWASP ASVS Level 1', ASVS_L1_CONTROLS, signals);
+  }
+  if (scanTypes.includes('asvs-l2')) {
+    results['asvs-l2'] = buildAsvsResult('asvs-l2', 'OWASP ASVS Level 2', ASVS_L2_CONTROLS, signals);
   }
   return results;
 }
 
-function buildAsvsL1Result(signals) {
-  const controls = ASVS_L1_CONTROLS.map((control) => evaluateAsvsControl(control, signals));
+function buildAsvsResult(id, label, controlDefinitions, signals) {
+  const controls = controlDefinitions.map((control) => evaluateAsvsControl(control, signals));
   const weighted = controls.reduce((total, control) => {
     const weight = control.severity === 'high' ? 12 : 8;
     const value = control.result === 'pass' ? weight : control.result === 'partial' ? Math.round(weight * 0.55) : control.result === 'unknown' ? Math.round(weight * 0.25) : 0;
@@ -511,12 +702,12 @@ function buildAsvsL1Result(signals) {
   const gaps = controls.filter((control) => control.result === 'gap').length;
   const unknown = controls.filter((control) => control.result === 'unknown').length;
   return {
-    id: 'asvs-l1',
-    label: 'OWASP ASVS Level 1',
+    id,
+    label,
     version: '5.0.0',
     status: gaps > 0 ? 'needs_attention' : unknown > 3 ? 'watch' : 'pass',
     score,
-    summary: `${controls.length} ASVS L1 control groups evaluated from repository evidence. ${gaps} gaps and ${unknown} unknowns require review.`,
+    summary: `${controls.length} ${label} control groups evaluated from repository evidence. ${gaps} gaps and ${unknown} unknowns require review.`,
     controls
   };
 }
@@ -533,7 +724,7 @@ function evaluateAsvsControl(control, signals) {
   if (passEvidence.length === 1) {
     return asvsControlResult(control, 'partial', passEvidence);
   }
-  if (control.id === 'ASVS-L1-FILES-01' && !signals.has('fileHandling')) {
+  if (/FILES-01$/.test(control.id) && !signals.has('fileHandling')) {
     return asvsControlResult(control, 'not_applicable', []);
   }
   return asvsControlResult(control, 'unknown', []);
@@ -554,7 +745,7 @@ function asvsControlResult(control, result, evidence) {
     control: control.id,
     category: control.category,
     title: control.title,
-    level: 'L1',
+    level: control.level || 'L1',
     severity: control.severity,
     result,
     evidence,
@@ -612,7 +803,7 @@ async function uploadRun(endpoint, payload) {
 async function main() {
   const vaxKey = getInput('vax_key') || process.env.VAX_KEY;
   const endpoint = getInput('endpoint', 'https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run');
-  const rawScanTypes = getInput('scan_types') || getInput('scan_levels', 'asvs-l1');
+  const rawScanTypes = getInput('scan_types') || getInput('scan_levels', 'asvs-l1,asvs-l2');
   const requestedScanTypes = parseList(rawScanTypes).map((item) => item.toLowerCase());
   const scanTypes = cleanScanTypes(rawScanTypes);
   const unsupportedScanTypes = requestedScanTypes.filter((item) => !SUPPORTED_SCAN_TYPES.has(item));
