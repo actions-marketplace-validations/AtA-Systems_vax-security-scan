@@ -6,7 +6,7 @@ branding:
   color: green
 inputs:
   vax_key:
-    description: Per-job VAX key. Prefer passing `${{ secrets.VAX_KEY }}`.
+    description: Per-job VAX key. Pass your VAX_KEY secret from the workflow.
     required: false
   endpoint:
     description: VAX Firebase function endpoint.
