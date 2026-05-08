@@ -13,7 +13,7 @@ inputs:
     required: false
     default: https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run
   scan_types:
-    description: Comma-separated scan types to run. Currently supports asvs-l1 and asvs-l2.
+    description: Comma-separated scan types to run. Currently supports asvs-l1, asvs-l2, wstg, nist-sp800-161r1-tier3, cmmc-level2, and dora.
     required: false
     default: asvs-l1,asvs-l2
   scan_levels:
@@ -23,6 +23,10 @@ inputs:
     description: Comma-separated files or directories to scan.
     required: false
     default: .
+  artifact_paths:
+    description: Comma-separated typed artifact manifests or evidence files to ingest in addition to repository evidence.
+    required: false
+    default: ""
   max_files:
     description: Maximum number of evidence files to include.
     required: false

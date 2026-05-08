@@ -92,7 +92,7 @@ const IMPORTANT_NAMES = new Set([
 
 class FatalConfigurationError extends Error {}
 
-const SUPPORTED_SCAN_TYPES = new Set(['asvs-l1', 'asvs-l2']);
+const SUPPORTED_SCAN_TYPES = new Set(['asvs-l1', 'asvs-l2', 'wstg', 'nist-sp800-161r1-tier3', 'cmmc-level2', 'dora']);
 
 const ASVS_L1_CONTROLS = [
   {
@@ -323,6 +323,376 @@ const ASVS_L2_CONTROLS = [
   }
 ];
 
+const WSTG_CONTROLS = [
+  {
+    id: 'WSTG-INFO-01',
+    category: 'Information Gathering',
+    title: 'Application inventory and security-relevant documentation are visible',
+    level: 'WSTG',
+    severity: 'medium',
+    passWhen: ['securityFiles', 'securityArchitecture', 'threatModel'],
+    recommendation: 'Add application security documentation, architecture notes, or threat model evidence that identifies assets, trust boundaries, and exposed surfaces.'
+  },
+  {
+    id: 'WSTG-CONF-01',
+    category: 'Configuration and Deployment',
+    title: 'Transport, headers, and deployment hardening controls are configured',
+    level: 'WSTG',
+    severity: 'high',
+    failWhen: ['insecureTransport', 'wideCors'],
+    passWhen: ['transportSecurity', 'securityHeaders', 'contentSecurityPolicy', 'tlsEnforcement'],
+    recommendation: 'Configure TLS enforcement, browser security headers, restrictive CORS, and production deployment hardening for web-facing services.'
+  },
+  {
+    id: 'WSTG-IDNT-AUTHN-01',
+    category: 'Identity and Authentication',
+    title: 'Authentication flows and identity provider controls are testable from repository evidence',
+    level: 'WSTG',
+    severity: 'high',
+    passWhen: ['authn', 'managedAuth', 'mfa', 'strongIdentityPolicy'],
+    recommendation: 'Include authentication routes, identity provider configuration, and tests or policy evidence for login, recovery, MFA, and account lifecycle behavior.'
+  },
+  {
+    id: 'WSTG-SESS-01',
+    category: 'Session Management',
+    title: 'Session protection, lifetime, and revocation behavior are visible',
+    level: 'WSTG',
+    severity: 'high',
+    passWhen: ['sessionProtection', 'sessionLifetime', 'tokenRevocation'],
+    recommendation: 'Add explicit session cookie protections, token lifetime controls, refresh rotation, logout, and revocation behavior.'
+  },
+  {
+    id: 'WSTG-ATHZ-01',
+    category: 'Authorization',
+    title: 'Authorization checks and policy enforcement are present for protected operations',
+    level: 'WSTG',
+    severity: 'high',
+    passWhen: ['authorization', 'centralizedAuthorization', 'policyAuthorization'],
+    recommendation: 'Centralize authorization checks and add evidence for role, permission, ownership, and policy enforcement on sensitive operations.'
+  },
+  {
+    id: 'WSTG-INPV-01',
+    category: 'Input Validation',
+    title: 'Input validation and injection-oriented safeguards are implemented',
+    level: 'WSTG',
+    severity: 'high',
+    passWhen: ['validation', 'schemaValidation', 'injectionProtection'],
+    recommendation: 'Validate all external input with schemas or framework validators, and use parameterized database or command interfaces.'
+  },
+  {
+    id: 'WSTG-ERRH-01',
+    category: 'Error Handling and Logging',
+    title: 'Error handling and security-relevant logging are visible',
+    level: 'WSTG',
+    severity: 'medium',
+    passWhen: ['logging', 'auditLogging'],
+    recommendation: 'Add structured error handling and security event logging for authentication, authorization, administrative, and sensitive-data workflows.'
+  },
+  {
+    id: 'WSTG-CLNT-01',
+    category: 'Client-side Testing',
+    title: 'Client-side security controls and browser tests are represented',
+    level: 'WSTG',
+    severity: 'medium',
+    failWhen: ['wideCors'],
+    passWhen: ['contentSecurityPolicy', 'securityHeaders', 'clientSecurityTesting', 'webTestAutomation'],
+    recommendation: 'Add client-side security controls such as CSP and browser tests for security-sensitive UI flows.'
+  },
+  {
+    id: 'WSTG-APIT-01',
+    category: 'API Testing',
+    title: 'API validation, authorization, and security test coverage are visible',
+    level: 'WSTG',
+    severity: 'high',
+    passWhen: ['apiSecurityTesting', 'validation', 'authorization', 'schemaValidation'],
+    recommendation: 'Add API security tests covering authentication, authorization, input validation, error handling, and abuse cases.'
+  },
+  {
+    id: 'WSTG-TOOL-01',
+    category: 'Security Testing Automation',
+    title: 'WSTG-aligned or dynamic web security testing automation is configured',
+    level: 'WSTG',
+    severity: 'medium',
+    passWhen: ['dastTool', 'securityTesting', 'webTestAutomation'],
+    recommendation: 'Add OWASP ZAP, DAST, browser automation, or targeted web security tests to CI for WSTG-oriented coverage.'
+  }
+];
+
+const NIST_SP800_161R1_TIER3_CONTROLS = [
+  {
+    id: 'NIST-SP800-161R1-T3-SCRM-01',
+    category: 'SCRM Governance',
+    title: 'System-level supply chain risk management responsibilities and procedures are documented',
+    level: 'Tier 3',
+    severity: 'medium',
+    passWhen: ['scrmPlan', 'securityFiles'],
+    recommendation: 'Add system-level SCRM procedures, responsibilities, approval gates, or operating instructions for supplier and dependency risk decisions.'
+  },
+  {
+    id: 'NIST-SP800-161R1-T3-SUPPLIER-01',
+    category: 'Supplier Inventory',
+    title: 'Critical suppliers, third-party services, or dependencies are inventoried for the system',
+    level: 'Tier 3',
+    severity: 'high',
+    passWhen: ['supplierInventory', 'dependencyManifest'],
+    recommendation: 'Maintain a system supplier and dependency inventory that identifies critical products, services, owners, and review cadence.'
+  },
+  {
+    id: 'NIST-SP800-161R1-T3-PROVENANCE-01',
+    category: 'Provenance and Integrity',
+    title: 'Build, artifact, SBOM, or provenance controls are visible for system components',
+    level: 'Tier 3',
+    severity: 'high',
+    passWhen: ['sbom', 'provenance', 'artifactIntegrity'],
+    recommendation: 'Generate SBOMs or provenance attestations and verify artifact integrity with signing, checksums, or controlled release evidence.'
+  },
+  {
+    id: 'NIST-SP800-161R1-T3-CICD-01',
+    category: 'Development and Operations',
+    title: 'CI/CD pipeline controls protect system changes and releases',
+    level: 'Tier 3',
+    severity: 'high',
+    passWhen: ['cicdHardening', 'securityTesting', 'centralizedAuthorization'],
+    recommendation: 'Harden CI/CD with protected branches or environments, pinned actions, least-privilege tokens, required reviews, and security checks.'
+  },
+  {
+    id: 'NIST-SP800-161R1-T3-VULN-01',
+    category: 'Vulnerability Management',
+    title: 'Operational vulnerability and dependency risk monitoring is automated',
+    level: 'Tier 3',
+    severity: 'high',
+    passWhen: ['dependencyAutomation', 'vulnerabilityManagement', 'secretScanning'],
+    recommendation: 'Enable dependency vulnerability monitoring, update automation, secret scanning, and documented remediation procedures.'
+  },
+  {
+    id: 'NIST-SP800-161R1-T3-CONFIG-01',
+    category: 'Configuration Management',
+    title: 'Secure configuration baselines or infrastructure-as-code controls are present',
+    level: 'Tier 3',
+    severity: 'medium',
+    failWhen: ['insecureTransport', 'wideCors'],
+    passWhen: ['configurationBaseline', 'tlsEnforcement', 'securityHeaders'],
+    recommendation: 'Document secure configuration baselines and enforce them through infrastructure-as-code, policy checks, or deployment hardening.'
+  },
+  {
+    id: 'NIST-SP800-161R1-T3-ACCESS-01',
+    category: 'Access Control and Monitoring',
+    title: 'Operational access control and audit logging evidence exists for system components',
+    level: 'Tier 3',
+    severity: 'high',
+    passWhen: ['policyAuthorization', 'auditLogging', 'leastPrivilege'],
+    recommendation: 'Apply least-privilege access policies and retain audit logs for administrative, deployment, supplier, and sensitive system activity.'
+  },
+  {
+    id: 'NIST-SP800-161R1-T3-INCIDENT-01',
+    category: 'Incident Response',
+    title: 'Supply-chain or third-party incident response procedures are represented',
+    level: 'Tier 3',
+    severity: 'medium',
+    passWhen: ['incidentResponse', 'auditLogging'],
+    recommendation: 'Add incident response procedures covering supplier compromise, dependency compromise, credential exposure, and coordinated notification.'
+  },
+  {
+    id: 'NIST-SP800-161R1-T3-CONTINGENCY-01',
+    category: 'Contingency Planning',
+    title: 'System continuity, fallback, backup, or supplier replacement planning is visible',
+    level: 'Tier 3',
+    severity: 'medium',
+    passWhen: ['contingencyPlanning', 'backupRecovery'],
+    recommendation: 'Document continuity, backup, recovery, or alternate supplier plans for critical system dependencies and services.'
+  }
+];
+
+const CMMC_LEVEL2_CONTROLS = [
+  {
+    id: 'CMMC-L2-AC-01',
+    category: 'Access Control',
+    title: 'Access control policies, authorization checks, and least-privilege evidence are visible',
+    level: 'Level 2',
+    severity: 'high',
+    passWhen: ['authorization', 'policyAuthorization', 'leastPrivilege'],
+    recommendation: 'Add role, permission, ownership, and least-privilege evidence for users, administrators, service accounts, and protected operations.'
+  },
+  {
+    id: 'CMMC-L2-IA-01',
+    category: 'Identification and Authentication',
+    title: 'Identity provider, MFA, and account policy controls are represented',
+    level: 'Level 2',
+    severity: 'high',
+    passWhen: ['managedAuth', 'mfa', 'strongIdentityPolicy'],
+    recommendation: 'Document identity provider policy, MFA requirements, account recovery, and lockout or conditional access controls.'
+  },
+  {
+    id: 'CMMC-L2-AU-01',
+    category: 'Audit and Accountability',
+    title: 'Security event and administrative audit logging evidence exists',
+    level: 'Level 2',
+    severity: 'high',
+    passWhen: ['auditLogging', 'logging'],
+    recommendation: 'Record audit events for authentication, authorization, administrative changes, sensitive access, and security-relevant failures.'
+  },
+  {
+    id: 'CMMC-L2-CM-01',
+    category: 'Configuration Management',
+    title: 'Secure baselines, change controls, or policy-as-code are present',
+    level: 'Level 2',
+    severity: 'medium',
+    failWhen: ['insecureTransport', 'wideCors'],
+    passWhen: ['configurationBaseline', 'cicdHardening', 'securityHeaders'],
+    recommendation: 'Add secure configuration baselines, controlled change evidence, policy-as-code checks, and hardened deployment settings.'
+  },
+  {
+    id: 'CMMC-L2-IR-01',
+    category: 'Incident Response',
+    title: 'Incident response procedures and security notification evidence are represented',
+    level: 'Level 2',
+    severity: 'medium',
+    passWhen: ['incidentResponse', 'auditLogging'],
+    recommendation: 'Document incident handling, reporting, escalation, evidence retention, and notification procedures for security events.'
+  },
+  {
+    id: 'CMMC-L2-RA-01',
+    category: 'Risk Assessment',
+    title: 'Risk assessment, vulnerability monitoring, and remediation evidence are visible',
+    level: 'Level 2',
+    severity: 'high',
+    passWhen: ['riskAssessment', 'vulnerabilityManagement', 'dependencyAutomation', 'securityTesting'],
+    recommendation: 'Add risk assessment outputs, vulnerability scanning, remediation tracking, dependency monitoring, or recurring security test evidence.'
+  },
+  {
+    id: 'CMMC-L2-CA-01',
+    category: 'Security Assessment',
+    title: 'Security assessment plans, SSP, POA&M, or control review artifacts are present',
+    level: 'Level 2',
+    severity: 'medium',
+    passWhen: ['securityAssessment', 'securityPlan', 'poam'],
+    recommendation: 'Maintain a system security plan, control assessment evidence, and POA&M or remediation tracking for unmet controls.'
+  },
+  {
+    id: 'CMMC-L2-SC-01',
+    category: 'System and Communications Protection',
+    title: 'Boundary, transport, and cryptographic protections are configured',
+    level: 'Level 2',
+    severity: 'high',
+    failWhen: ['insecureTransport'],
+    passWhen: ['transportSecurity', 'tlsEnforcement', 'keyManagement', 'modernEncryption'],
+    recommendation: 'Enforce TLS, document boundary protections, use managed keys, and apply modern encryption for protected data flows.'
+  },
+  {
+    id: 'CMMC-L2-SI-01',
+    category: 'System and Information Integrity',
+    title: 'Security testing, vulnerability management, and malicious code protections are automated',
+    level: 'Level 2',
+    severity: 'high',
+    passWhen: ['securityTesting', 'vulnerabilityManagement', 'secretScanning', 'malwareFileControl'],
+    recommendation: 'Add SAST, dependency scanning, secret scanning, malware-oriented controls, and documented remediation procedures.'
+  },
+  {
+    id: 'CMMC-L2-MP-01',
+    category: 'Media Protection',
+    title: 'Sensitive data handling, retention, and file/media controls are documented',
+    level: 'Level 2',
+    severity: 'medium',
+    failWhen: ['hardcodedSecret', 'unsafeFileHandling'],
+    passWhen: ['dataClassification', 'fileControls', 'secretManagement'],
+    recommendation: 'Document data classification, retention, media handling, secure upload/storage controls, and secret management practices.'
+  }
+];
+
+const DORA_CONTROLS = [
+  {
+    id: 'DORA-ICT-RISK-01',
+    category: 'ICT Risk Management',
+    title: 'ICT risk management responsibilities, register, or governance evidence is visible',
+    level: 'DORA',
+    severity: 'high',
+    passWhen: ['ictRiskManagement', 'riskAssessment', 'scrmPlan'],
+    recommendation: 'Document ICT risk management roles, risk registers, risk treatment, and governance procedures for critical digital services.'
+  },
+  {
+    id: 'DORA-ICT-ASSET-01',
+    category: 'ICT Asset and Dependency Inventory',
+    title: 'ICT assets, systems, suppliers, or critical dependencies are inventoried',
+    level: 'DORA',
+    severity: 'high',
+    passWhen: ['ictAssetInventory', 'supplierInventory', 'dependencyManifest'],
+    recommendation: 'Maintain an inventory of ICT assets, critical systems, third-party ICT providers, and supporting software dependencies.'
+  },
+  {
+    id: 'DORA-PROTECTION-01',
+    category: 'Protection and Prevention',
+    title: 'Preventive security controls protect ICT systems and data',
+    level: 'DORA',
+    severity: 'high',
+    failWhen: ['insecureTransport', 'wideCors', 'hardcodedSecret'],
+    passWhen: ['configurationBaseline', 'tlsEnforcement', 'securityHeaders', 'secretManagement', 'leastPrivilege'],
+    recommendation: 'Harden ICT configurations, enforce TLS, protect secrets, restrict access, and apply baseline preventive security controls.'
+  },
+  {
+    id: 'DORA-DETECTION-01',
+    category: 'Detection',
+    title: 'Monitoring, alerting, audit logging, or vulnerability detection evidence is present',
+    level: 'DORA',
+    severity: 'high',
+    passWhen: ['monitoringAlerting', 'auditLogging', 'vulnerabilityManagement', 'securityTesting'],
+    recommendation: 'Add monitoring, alerting, audit logs, vulnerability detection, and review procedures for ICT-related events.'
+  },
+  {
+    id: 'DORA-INCIDENT-01',
+    category: 'ICT Incident Management',
+    title: 'ICT incident response, escalation, notification, or reporting procedures are represented',
+    level: 'DORA',
+    severity: 'high',
+    passWhen: ['ictIncidentManagement', 'incidentResponse', 'auditLogging'],
+    recommendation: 'Document ICT incident classification, escalation, communication, evidence retention, and regulatory or customer notification procedures.'
+  },
+  {
+    id: 'DORA-RESILIENCE-TEST-01',
+    category: 'Digital Operational Resilience Testing',
+    title: 'Resilience, continuity, security, or recovery testing evidence is visible',
+    level: 'DORA',
+    severity: 'medium',
+    passWhen: ['resilienceTesting', 'securityTesting', 'dastTool', 'webTestAutomation', 'apiSecurityTesting'],
+    recommendation: 'Run recurring resilience, recovery, vulnerability, application security, and scenario-based tests for critical ICT-supported services.'
+  },
+  {
+    id: 'DORA-CONTINUITY-01',
+    category: 'Business Continuity and Recovery',
+    title: 'Backup, recovery, continuity, or fallback plans are documented',
+    level: 'DORA',
+    severity: 'high',
+    passWhen: ['contingencyPlanning', 'backupRecovery', 'resilienceTesting'],
+    recommendation: 'Document business continuity, disaster recovery, backup restore, recovery objectives, and fallback provider procedures.'
+  },
+  {
+    id: 'DORA-THIRD-PARTY-01',
+    category: 'ICT Third-Party Risk',
+    title: 'Third-party ICT provider risk and exit management evidence is present',
+    level: 'DORA',
+    severity: 'high',
+    passWhen: ['ictThirdPartyRisk', 'supplierInventory', 'scrmPlan', 'thirdPartyExitPlan'],
+    recommendation: 'Track critical ICT third-party providers, risk reviews, contractual controls, concentration risk, and exit or substitution plans.'
+  },
+  {
+    id: 'DORA-CHANGE-01',
+    category: 'Change and Release Controls',
+    title: 'ICT change, release, or deployment controls protect production systems',
+    level: 'DORA',
+    severity: 'medium',
+    passWhen: ['cicdHardening', 'configurationBaseline', 'changeManagement'],
+    recommendation: 'Apply controlled change management, protected releases, environment approvals, rollback procedures, and policy checks for ICT changes.'
+  },
+  {
+    id: 'DORA-INFO-SHARING-01',
+    category: 'Information Sharing and Learning',
+    title: 'Threat intelligence, post-incident learning, or security information sharing is represented',
+    level: 'DORA',
+    severity: 'medium',
+    passWhen: ['threatIntelligence', 'postIncidentReview', 'incidentResponse'],
+    recommendation: 'Capture threat intelligence, lessons learned, post-incident reviews, and structured security information sharing practices.'
+  }
+];
+
 function inputName(name) {
   return `INPUT_${name.replace(/ /g, '_').toUpperCase()}`;
 }
@@ -372,6 +742,11 @@ function cleanScanTypes(value) {
 function parseNumber(value, fallback) {
   const parsed = Number.parseInt(String(value || ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function cleanStatus(value) {
+  const status = String(value || 'unknown').toLowerCase();
+  return ['pass', 'partial', 'gap', 'unknown', 'not_applicable'].includes(status) ? status : 'unknown';
 }
 
 function sha256(buffer) {
@@ -470,6 +845,10 @@ function scanRepository(root, options) {
   let bytesIncluded = 0;
   let truncated = false;
 
+  if (options.artifactSignals) {
+    mergeSignalMaps(asvsSignals, options.artifactSignals);
+  }
+
   for (const filePath of files) {
     const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
     const raw = fs.readFileSync(filePath);
@@ -511,7 +890,7 @@ function scanRepository(root, options) {
   return {
     evidence,
     evidence_truncated: truncated,
-    scan_results: buildScanResults(options.scanTypes, asvsSignals),
+    scan_results: buildScanResults(options.scanTypes, asvsSignals, options.mappedControls || []),
     scan_summary: {
       filesDiscovered: files.length,
       filesScanned: evidence.length,
@@ -524,6 +903,187 @@ function scanRepository(root, options) {
       unsupportedScanTypes: options.unsupportedScanTypes
     }
   };
+}
+
+function ingestArtifactPaths(root, requestedPaths, options) {
+  const files = walkEvidencePaths(root, requestedPaths, options.maxFiles);
+  const evidence = [];
+  const signals = new Map();
+  const mappedControls = [];
+  let bytesIncluded = 0;
+  let truncated = false;
+
+  for (const filePath of files) {
+    const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
+    const raw = fs.readFileSync(filePath);
+    const fileHash = sha256(raw);
+    const remaining = options.maxBytes - bytesIncluded;
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+
+    const maxForFile = Math.min(options.maxFileBytes, remaining);
+    const content = raw.toString('utf8', 0, maxForFile);
+    bytesIncluded += Buffer.byteLength(content, 'utf8');
+    if (raw.length > maxForFile) truncated = true;
+
+    const artifact = parseArtifact(content, relativePath);
+    collectArtifactSignals(artifact, relativePath, signals);
+    mappedControls.push(...collectArtifactControlMappings(artifact, relativePath));
+
+    evidence.push({
+      path: relativePath,
+      sha256: fileHash,
+      size: raw.length,
+      truncated: raw.length > maxForFile,
+      artifact_type: artifact.type || 'generic',
+      content
+    });
+  }
+
+  return {
+    evidence,
+    evidence_truncated: truncated,
+    signals,
+    mappedControls,
+    summary: {
+      artifactFilesDiscovered: files.length,
+      artifactFilesScanned: evidence.length,
+      artifactBytesIncluded: bytesIncluded,
+      artifactTypes: summarizeArtifactTypes(evidence),
+      mappedControls: mappedControls.length
+    }
+  };
+}
+
+function parseArtifact(content, relativePath) {
+  try {
+    const parsed = JSON.parse(content);
+    return normalizeArtifact(parsed, relativePath);
+  } catch {
+    return normalizeArtifact({ type: artifactTypeFromPath(relativePath), content }, relativePath);
+  }
+}
+
+function normalizeArtifact(value, relativePath) {
+  if (Array.isArray(value)) {
+    return { type: 'artifact_bundle', path: relativePath, artifacts: value.map((item) => normalizeArtifact(item, relativePath)) };
+  }
+  if (!value || typeof value !== 'object') {
+    return { type: artifactTypeFromPath(relativePath), path: relativePath };
+  }
+  const type = String(value.artifact_type || value.type || artifactTypeFromPath(relativePath) || 'generic').toLowerCase();
+  const artifacts = Array.isArray(value.artifacts) ? value.artifacts.map((item) => normalizeArtifact(item, relativePath)) : [];
+  return { ...value, type, path: value.path || relativePath, artifacts };
+}
+
+function artifactTypeFromPath(relativePath) {
+  const lower = relativePath.toLowerCase();
+  if (/sbom|cyclonedx|spdx/.test(lower)) return 'sbom';
+  if (/provenance|attestation|slsa|intoto|in-toto/.test(lower)) return 'provenance';
+  if (/poam|plan.of.action|corrective/.test(lower)) return 'poam';
+  if (/risk/.test(lower)) return 'risk_register';
+  if (/incident/.test(lower)) return 'incident_response_plan';
+  if (/continuity|disaster|backup|recovery|bcp/.test(lower)) return 'business_continuity_plan';
+  if (/vulnerability|sast|dast|scan/.test(lower)) return 'vulnerability_scan';
+  if (/security.plan|ssp|system.security/.test(lower)) return 'security_plan';
+  return 'generic';
+}
+
+function summarizeArtifactTypes(evidence) {
+  const counts = {};
+  for (const item of evidence) {
+    const type = item.artifact_type || 'generic';
+    counts[type] = (counts[type] || 0) + 1;
+  }
+  return counts;
+}
+
+function collectArtifactSignals(artifact, defaultPath, signals) {
+  const artifacts = [artifact, ...(artifact.artifacts || [])];
+  for (const item of artifacts) {
+    const artifactPath = String(item.path || defaultPath);
+    const type = String(item.type || 'generic').toLowerCase();
+    for (const signal of artifactSignalsForType(type)) {
+      addAsvsSignal(signals, signal.name, artifactPath, signal.detail, 'typed_artifact');
+    }
+  }
+}
+
+function artifactSignalsForType(type) {
+  const map = {
+    sbom: [{ name: 'sbom', detail: 'Typed SBOM artifact' }, { name: 'dependencyManifest', detail: 'Dependency inventory artifact' }],
+    provenance: [{ name: 'provenance', detail: 'Typed build provenance artifact' }, { name: 'artifactIntegrity', detail: 'Artifact integrity attestation' }],
+    attestation: [{ name: 'provenance', detail: 'Typed attestation artifact' }],
+    security_plan: [{ name: 'securityPlan', detail: 'Typed security plan artifact' }, { name: 'securityAssessment', detail: 'Control implementation artifact' }],
+    risk_register: [{ name: 'riskAssessment', detail: 'Typed risk register artifact' }],
+    poam: [{ name: 'poam', detail: 'Typed POA&M artifact' }],
+    incident_response_plan: [{ name: 'incidentResponse', detail: 'Typed incident response artifact' }, { name: 'ictIncidentManagement', detail: 'ICT incident response artifact' }],
+    business_continuity_plan: [{ name: 'contingencyPlanning', detail: 'Typed continuity plan artifact' }, { name: 'backupRecovery', detail: 'Recovery procedure artifact' }],
+    vulnerability_scan: [{ name: 'vulnerabilityManagement', detail: 'Typed vulnerability scan artifact' }, { name: 'securityTesting', detail: 'Security testing artifact' }],
+    penetration_test_report: [{ name: 'securityTesting', detail: 'Typed penetration test artifact' }, { name: 'resilienceTesting', detail: 'Resilience or threat-led testing artifact' }],
+    policy: [{ name: 'policyAuthorization', detail: 'Typed policy artifact' }],
+    access_review: [{ name: 'leastPrivilege', detail: 'Typed access review artifact' }]
+  };
+  return map[type] || [];
+}
+
+function collectArtifactControlMappings(artifact, defaultPath) {
+  const mappings = [];
+  const artifacts = [artifact, ...(artifact.artifacts || [])];
+  for (const item of artifacts) {
+    const controls = []
+      .concat(Array.isArray(item.controls) ? item.controls : [])
+      .concat(Array.isArray(item.control_mappings) ? item.control_mappings : []);
+    for (const mapping of controls) {
+      const normalized = normalizeControlMapping(mapping, item, defaultPath);
+      if (normalized) mappings.push(normalized);
+    }
+  }
+  return mappings;
+}
+
+function normalizeControlMapping(mapping, artifact, defaultPath) {
+  if (!mapping || typeof mapping !== 'object') return null;
+  const controlId = String(mapping.control || mapping.control_id || mapping.id || '').trim();
+  if (!controlId) return null;
+  const framework = String(mapping.framework || '').trim();
+  const scanType = String(mapping.scan_type || scanTypeForFramework(framework) || '').toLowerCase();
+  const evidencePath = String(mapping.path || artifact.path || defaultPath);
+  const detail = String(mapping.detail || mapping.evidence || artifact.title || `Explicit mapping from ${artifact.type || 'artifact'} artifact`);
+  return {
+    scan_type: scanType || 'artifact-mapping',
+    framework,
+    control: controlId,
+    category: mapping.category || artifact.type || 'Artifact Evidence',
+    title: mapping.title || controlId,
+    level: mapping.level,
+    severity: String(mapping.severity || 'medium').toLowerCase(),
+    result: cleanStatus(mapping.status || mapping.result || 'pass'),
+    evidence: [{ signal: 'artifact_mapping', path: evidencePath, detail, source: 'typed_artifact' }],
+    files: [evidencePath],
+    recommendation: mapping.recommendation || ''
+  };
+}
+
+function scanTypeForFramework(framework) {
+  const value = String(framework || '').toLowerCase();
+  if (value.includes('dora')) return 'dora';
+  if (value.includes('cmmc')) return 'cmmc-level2';
+  if (value.includes('nist')) return 'nist-sp800-161r1-tier3';
+  if (value.includes('wstg')) return 'wstg';
+  if (value.includes('asvs') && value.includes('l2')) return 'asvs-l2';
+  if (value.includes('asvs')) return 'asvs-l1';
+  return '';
+}
+
+function mergeSignalMaps(target, source) {
+  for (const [name, entries] of source.entries()) {
+    for (const entry of entries) {
+      addAsvsSignal(target, name, entry.path, entry.detail, entry.source);
+    }
+  }
 }
 
 function addSignal(signals, id, title, severity, filePath) {
@@ -552,13 +1112,13 @@ function collectLocalSignals(relativePath, content, signals) {
   }
 }
 
-function addAsvsSignal(signals, name, filePath, detail) {
+function addAsvsSignal(signals, name, filePath, detail, source = 'ci_local_scan') {
   if (!signals.has(name)) {
     signals.set(name, []);
   }
   const entries = signals.get(name);
   if (!entries.some((entry) => entry.path === filePath && entry.detail === detail)) {
-    entries.push({ path: filePath, detail });
+    entries.push({ path: filePath, detail, source });
   }
 }
 
@@ -601,6 +1161,9 @@ function collectAsvsSignals(relativePath, content, signals) {
   }
   if (/zod|joi|yup|ajv|pydantic|marshmallow|validator|validate|sanitize|escape|parameterized|prepared statement|req\.body|request\.data/i.test(content)) {
     addAsvsSignal(signals, 'validation', relativePath, 'Validation, sanitization, or parameterized input handling');
+  }
+  if (/parameterized|prepared statement|sqlalchemy|sequelize|prisma|knex|escape|sanitize|encodeURIComponent|DOMPurify/i.test(content)) {
+    addAsvsSignal(signals, 'injectionProtection', relativePath, 'Injection-oriented input handling safeguard');
   }
   if (/zod|joi|yup|ajv|pydantic|marshmallow|schema|json schema|typebox|class-validator|FormRequest|serializer/i.test(content)) {
     addAsvsSignal(signals, 'schemaValidation', relativePath, 'Schema-based or typed validation');
@@ -677,9 +1240,99 @@ function collectAsvsSignals(relativePath, content, signals) {
   if (/codeql|semgrep|sast|static analysis|dependency-review|gitleaks|trufflehog|zap|security test|security scan|osv-scanner|snyk/i.test(content)) {
     addAsvsSignal(signals, 'securityTesting', relativePath, 'Security testing or scanning automation');
   }
+  if (/owasp zap|zaproxy|zap-baseline|zap-full-scan|dast|dynamic application security testing|burp|nuclei/i.test(content)) {
+    addAsvsSignal(signals, 'dastTool', relativePath, 'Dynamic web security testing tool');
+  }
+  if (/playwright|cypress|selenium|webdriver|puppeteer|vitest|jest|testing-library/i.test(content) && /login|auth|csrf|cors|permission|role|security|xss|session/i.test(content)) {
+    addAsvsSignal(signals, 'webTestAutomation', relativePath, 'Browser or web workflow security test automation');
+  }
+  if (/supertest|postman|newman|schemathesis|dredd|openapi|swagger|api.*test|contract test/i.test(content) && /auth|authorization|permission|validate|schema|security/i.test(content)) {
+    addAsvsSignal(signals, 'apiSecurityTesting', relativePath, 'API security or contract test evidence');
+  }
+  if (/xss|cross-site scripting|dangerouslySetInnerHTML|innerHTML|DOMPurify|sanitize/i.test(content)) {
+    addAsvsSignal(signals, 'clientSecurityTesting', relativePath, 'Client-side security control or test evidence');
+  }
+  if (/supply chain risk|SCRM|supplier risk|third[- ]party risk|vendor risk|critical supplier|external provider/i.test(content)) {
+    addAsvsSignal(signals, 'scrmPlan', relativePath, 'Supply chain risk management procedure or responsibility');
+  }
+  if (/ICT risk|information and communication technology risk|digital operational resilience|operational resilience|DORA|critical function|critical service|technology risk|cyber risk management/i.test(content)) {
+    addAsvsSignal(signals, 'ictRiskManagement', relativePath, 'ICT risk management or digital operational resilience evidence');
+  }
+  if (/supplier inventory|vendor inventory|third[- ]party inventory|service catalog|dependency inventory|software inventory|asset inventory/i.test(content)) {
+    addAsvsSignal(signals, 'supplierInventory', relativePath, 'Supplier, service, asset, or dependency inventory');
+  }
+  if (/ICT asset|information asset|system inventory|application inventory|service inventory|critical asset|critical system|configuration management database|\bCMDB\b/i.test(content)) {
+    addAsvsSignal(signals, 'ictAssetInventory', relativePath, 'ICT asset or critical system inventory');
+  }
+  if (/SBOM|CycloneDX|SPDX|software bill of materials|bom\.(json|xml)|syft|dependency-track/i.test(content) || /sbom|cyclonedx|spdx/i.test(relativePath)) {
+    addAsvsSignal(signals, 'sbom', relativePath, 'Software bill of materials evidence');
+  }
+  if (/SLSA|provenance|attestation|in-toto|sigstore|cosign|artifact attest|build attest/i.test(content)) {
+    addAsvsSignal(signals, 'provenance', relativePath, 'Build provenance or attestation evidence');
+  }
+  if (/checksum|sha256sum|signature|signed artifact|verify artifact|artifact integrity|container signing|image signing/i.test(content)) {
+    addAsvsSignal(signals, 'artifactIntegrity', relativePath, 'Artifact integrity verification');
+  }
+  if (/permissions:\s*(read|contents: read|id-token: write)|protected branch|required review|environment protection|pin.*actions|CODEOWNERS|least[- ]privilege token/i.test(content) || /CODEOWNERS/i.test(relativePath)) {
+    addAsvsSignal(signals, 'cicdHardening', relativePath, 'CI/CD change or release protection');
+  }
+  if (/vulnerability management|vulnerability remediation|patch management|CVE|CVSS|security advisory|dependabot|renovate|osv-scanner|snyk|npm audit|pip-audit/i.test(content)) {
+    addAsvsSignal(signals, 'vulnerabilityManagement', relativePath, 'Vulnerability monitoring or remediation evidence');
+  }
+  if (/risk assessment|risk register|risk analysis|risk treatment|security risk|control risk|supplier risk assessment/i.test(content)) {
+    addAsvsSignal(signals, 'riskAssessment', relativePath, 'Risk assessment or risk tracking evidence');
+  }
+  if (/system security plan|\bSSP\b|security assessment|assessment objective|control assessment|control review|CMMC|NIST SP 800-171|800-171/i.test(content)) {
+    addAsvsSignal(signals, 'securityAssessment', relativePath, 'Security assessment or control review evidence');
+  }
+  if (/system security plan|\bSSP\b|security plan|control implementation summary/i.test(content)) {
+    addAsvsSignal(signals, 'securityPlan', relativePath, 'System security plan evidence');
+  }
+  if (/POA&M|plan of action|milestones|remediation plan|corrective action plan/i.test(content)) {
+    addAsvsSignal(signals, 'poam', relativePath, 'POA&M or remediation tracking evidence');
+  }
+  if (/configuration baseline|secure baseline|hardened image|IaC|infrastructure as code|terraform|cloudformation|pulumi|kubernetes policy|OPA|conftest|checkov|tfsec/i.test(content)) {
+    addAsvsSignal(signals, 'configurationBaseline', relativePath, 'Secure configuration baseline or policy-as-code');
+  }
+  if (/least privilege|least-privilege|minimum privilege|privileged access|admin access|break glass|service account/i.test(content)) {
+    addAsvsSignal(signals, 'leastPrivilege', relativePath, 'Least-privilege access control evidence');
+  }
+  if (/incident response|IR plan|security incident|supplier compromise|third[- ]party incident|dependency compromise|coordinated disclosure|breach notification/i.test(content)) {
+    addAsvsSignal(signals, 'incidentResponse', relativePath, 'Incident response or notification procedure');
+  }
+  if (/ICT incident|major incident|incident classification|incident reporting|incident notification|incident escalation|regulatory notification|customer notification/i.test(content)) {
+    addAsvsSignal(signals, 'ictIncidentManagement', relativePath, 'ICT incident classification, escalation, or notification evidence');
+  }
+  if (/contingency plan|business continuity|BCP|disaster recovery|backup|restore|recovery point|recovery time|alternate supplier|fallback provider/i.test(content)) {
+    addAsvsSignal(signals, 'contingencyPlanning', relativePath, 'Continuity or fallback planning');
+  }
+  if (/backup|restore|snapshot|replication|recovery|disaster recovery/i.test(content)) {
+    addAsvsSignal(signals, 'backupRecovery', relativePath, 'Backup or recovery control');
+  }
+  if (/monitoring|alerting|SIEM|SOC|EDR|detection rule|observability|on-call|pager|security alert|availability alert/i.test(content)) {
+    addAsvsSignal(signals, 'monitoringAlerting', relativePath, 'Monitoring, alerting, or detection evidence');
+  }
+  if (/resilience test|operational resilience test|tabletop|scenario test|failover test|restore test|backup test|disaster recovery test|business continuity test|penetration test|red team|threat-led penetration/i.test(content)) {
+    addAsvsSignal(signals, 'resilienceTesting', relativePath, 'Resilience, recovery, or threat-led testing evidence');
+  }
+  if (/ICT third[- ]party|third[- ]party ICT|outsourcing|critical provider|concentration risk|substitutability|exit plan|exit strategy|supplier exit/i.test(content)) {
+    addAsvsSignal(signals, 'ictThirdPartyRisk', relativePath, 'ICT third-party provider risk evidence');
+  }
+  if (/exit plan|exit strategy|supplier exit|provider exit|substitution plan|alternate provider|fallback provider/i.test(content)) {
+    addAsvsSignal(signals, 'thirdPartyExitPlan', relativePath, 'Third-party provider exit or substitution plan');
+  }
+  if (/change management|change control|release approval|rollback|deployment approval|environment protection|production change|CAB\b/i.test(content)) {
+    addAsvsSignal(signals, 'changeManagement', relativePath, 'Change or release management control');
+  }
+  if (/threat intelligence|intel sharing|information sharing|ISAC|IOC|indicator of compromise|vulnerability disclosure/i.test(content)) {
+    addAsvsSignal(signals, 'threatIntelligence', relativePath, 'Threat intelligence or security information sharing');
+  }
+  if (/post[- ]incident|postmortem|lessons learned|root cause analysis|\bRCA\b|after action review/i.test(content)) {
+    addAsvsSignal(signals, 'postIncidentReview', relativePath, 'Post-incident review or lessons learned evidence');
+  }
 }
 
-function buildScanResults(scanTypes, signals) {
+function buildScanResults(scanTypes, signals, mappedControls = []) {
   const results = {};
   if (scanTypes.includes('asvs-l1')) {
     results['asvs-l1'] = buildAsvsResult('asvs-l1', 'OWASP ASVS Level 1', ASVS_L1_CONTROLS, signals);
@@ -687,10 +1340,80 @@ function buildScanResults(scanTypes, signals) {
   if (scanTypes.includes('asvs-l2')) {
     results['asvs-l2'] = buildAsvsResult('asvs-l2', 'OWASP ASVS Level 2', ASVS_L2_CONTROLS, signals);
   }
+  if (scanTypes.includes('wstg')) {
+    results.wstg = buildAsvsResult('wstg', 'OWASP WSTG', WSTG_CONTROLS, signals, 'repository-evidence');
+  }
+  if (scanTypes.includes('nist-sp800-161r1-tier3')) {
+    results['nist-sp800-161r1-tier3'] = buildAsvsResult(
+      'nist-sp800-161r1-tier3',
+      'NIST SP 800-161 Rev. 1 Tier 3',
+      NIST_SP800_161R1_TIER3_CONTROLS,
+      signals,
+      'Rev. 1'
+    );
+  }
+  if (scanTypes.includes('cmmc-level2')) {
+    results['cmmc-level2'] = buildAsvsResult(
+      'cmmc-level2',
+      'CMMC Level 2',
+      CMMC_LEVEL2_CONTROLS,
+      signals,
+      '2.0'
+    );
+  }
+  if (scanTypes.includes('dora')) {
+    results.dora = buildAsvsResult('dora', 'DORA', DORA_CONTROLS, signals, 'EU 2022/2554');
+  }
+  return mergeMappedControls(results, mappedControls);
+}
+
+function mergeMappedControls(results, mappedControls) {
+  const touched = new Set();
+  for (const control of mappedControls) {
+    const scanType = control.scan_type || 'artifact-mapping';
+    touched.add(scanType);
+    if (!results[scanType]) {
+      results[scanType] = {
+        id: scanType,
+        label: control.framework || 'Typed artifact mappings',
+        version: 'artifact-mapping',
+        status: 'pass',
+        score: 100,
+        summary: 'Controls mapped explicitly from typed artifacts.',
+        controls: []
+      };
+    }
+    const controls = results[scanType].controls;
+    const existingIndex = controls.findIndex((item) => item.control === control.control);
+    if (existingIndex >= 0) {
+      controls[existingIndex] = { ...controls[existingIndex], ...control };
+    } else {
+      controls.push(control);
+    }
+  }
+  for (const scanType of touched) {
+    refreshResultSummary(results[scanType]);
+  }
   return results;
 }
 
-function buildAsvsResult(id, label, controlDefinitions, signals) {
+function refreshResultSummary(result) {
+  const controls = result.controls || [];
+  if (controls.length === 0) return;
+  const weighted = controls.reduce((total, control) => {
+    const weight = control.severity === 'high' ? 12 : 8;
+    const value = control.result === 'pass' ? weight : control.result === 'partial' ? Math.round(weight * 0.55) : control.result === 'unknown' ? Math.round(weight * 0.25) : 0;
+    return total + value;
+  }, 0);
+  const max = controls.reduce((total, control) => total + (control.severity === 'high' ? 12 : 8), 0);
+  const gaps = controls.filter((control) => control.result === 'gap').length;
+  const unknown = controls.filter((control) => control.result === 'unknown').length;
+  result.score = Math.round((weighted / max) * 100);
+  result.status = gaps > 0 ? 'needs_attention' : unknown > 3 ? 'watch' : 'pass';
+  result.summary = `${controls.length} ${result.label || result.id} control groups evaluated from repository and typed artifact evidence. ${gaps} gaps and ${unknown} unknowns require review.`;
+}
+
+function buildAsvsResult(id, label, controlDefinitions, signals, version = '5.0.0') {
   const controls = controlDefinitions.map((control) => evaluateAsvsControl(control, signals));
   const weighted = controls.reduce((total, control) => {
     const weight = control.severity === 'high' ? 12 : 8;
@@ -704,7 +1427,7 @@ function buildAsvsResult(id, label, controlDefinitions, signals) {
   return {
     id,
     label,
-    version: '5.0.0',
+    version,
     status: gaps > 0 ? 'needs_attention' : unknown > 3 ? 'watch' : 'pass',
     score,
     summary: `${controls.length} ${label} control groups evaluated from repository evidence. ${gaps} gaps and ${unknown} unknowns require review.`,
@@ -808,6 +1531,7 @@ async function main() {
   const scanTypes = cleanScanTypes(rawScanTypes);
   const unsupportedScanTypes = requestedScanTypes.filter((item) => !SUPPORTED_SCAN_TYPES.has(item));
   const evidencePaths = parseList(getInput('evidence_paths', '.'));
+  const artifactPaths = parseList(getInput('artifact_paths', ''));
   const maxFiles = parseNumber(getInput('max_files', '120'), 120);
   const maxBytes = parseNumber(getInput('max_bytes', '750000'), 750000);
   const maxFileBytes = parseNumber(getInput('max_file_bytes', '24000'), 24000);
@@ -818,7 +1542,19 @@ async function main() {
 
   const root = process.env.GITHUB_WORKSPACE || process.cwd();
   const oidcToken = await getGitHubOidcToken('vax');
-  const scan = scanRepository(root, { evidencePaths, maxFiles, maxBytes, maxFileBytes, scanTypes, unsupportedScanTypes });
+  const artifacts = artifactPaths.length > 0
+    ? ingestArtifactPaths(root, artifactPaths, { maxFiles, maxBytes, maxFileBytes })
+    : { evidence: [], evidence_truncated: false, signals: new Map(), mappedControls: [], summary: {} };
+  const scan = scanRepository(root, {
+    evidencePaths,
+    maxFiles,
+    maxBytes,
+    maxFileBytes,
+    scanTypes,
+    unsupportedScanTypes,
+    artifactSignals: artifacts.signals,
+    mappedControls: artifacts.mappedControls
+  });
 
   const payload = {
     vax_key: vaxKey,
@@ -832,10 +1568,11 @@ async function main() {
     github_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
     scan_types: scanTypes,
     scan_levels: scanTypes,
-    evidence: scan.evidence,
-    evidence_truncated: scan.evidence_truncated,
+    artifact_paths: artifactPaths,
+    evidence: scan.evidence.concat(artifacts.evidence),
+    evidence_truncated: scan.evidence_truncated || artifacts.evidence_truncated,
     scan_results: scan.scan_results,
-    scan_summary: scan.scan_summary
+    scan_summary: { ...scan.scan_summary, ...artifacts.summary }
   };
 
   const result = await uploadRun(endpoint, payload);
@@ -844,7 +1581,7 @@ async function main() {
   setOutput('run_id', result.run_id);
 
   console.log(`VAX run URL: ${runUrl}`);
-  addSummary(`## VAX evidence scan\n\nRun URL: [${runUrl}](${runUrl})\n\nScan types: ${scanTypes.join(', ')}\n\nFiles scanned: ${scan.scan_summary.filesScanned}\n\nAssessment continues in VAX and will not fail this CI job.`);
+  addSummary(`## VAX evidence scan\n\nRun URL: [${runUrl}](${runUrl})\n\nScan types: ${scanTypes.join(', ')}\n\nFiles scanned: ${scan.scan_summary.filesScanned}\n\nArtifacts scanned: ${artifacts.summary.artifactFilesScanned || 0}\n\nAssessment continues in VAX and will not fail this CI job.`);
 }
 
 main().catch((error) => {
