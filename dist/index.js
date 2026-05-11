@@ -92,7 +92,8 @@ const IMPORTANT_NAMES = new Set([
 
 class FatalConfigurationError extends Error {}
 
-const SUPPORTED_SCAN_TYPES = new Set(['asvs-l1', 'asvs-l2', 'wstg', 'nist-sp800-161r1-tier3', 'cmmc-level2', 'dora']);
+const ALL_SCAN_TYPES = ['asvs-l1', 'asvs-l2', 'wstg', 'nist-sp800-161r1-tier3', 'cmmc-level2', 'dora'];
+const SUPPORTED_SCAN_TYPES = new Set(ALL_SCAN_TYPES);
 
 const ASVS_L1_CONTROLS = [
   {
@@ -1526,10 +1527,8 @@ async function uploadRun(endpoint, payload) {
 async function main() {
   const vaxKey = getInput('vax_key') || process.env.VAX_KEY;
   const endpoint = getInput('endpoint', 'https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run');
-  const rawScanTypes = getInput('scan_types') || getInput('scan_levels', 'asvs-l1,asvs-l2');
-  const requestedScanTypes = parseList(rawScanTypes).map((item) => item.toLowerCase());
-  const scanTypes = cleanScanTypes(rawScanTypes);
-  const unsupportedScanTypes = requestedScanTypes.filter((item) => !SUPPORTED_SCAN_TYPES.has(item));
+  const scanTypes = ALL_SCAN_TYPES;
+  const unsupportedScanTypes = [];
   const evidencePaths = parseList(getInput('evidence_paths', '.'));
   const artifactPaths = parseList(getInput('artifact_paths', ''));
   const maxFiles = parseNumber(getInput('max_files', '120'), 120);
@@ -1566,8 +1565,6 @@ async function main() {
     workflow: process.env.GITHUB_WORKFLOW,
     github_run_id: process.env.GITHUB_RUN_ID,
     github_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
-    scan_types: scanTypes,
-    scan_levels: scanTypes,
     artifact_paths: artifactPaths,
     evidence: scan.evidence.concat(artifacts.evidence),
     evidence_truncated: scan.evidence_truncated || artifacts.evidence_truncated,
@@ -1577,11 +1574,12 @@ async function main() {
 
   const result = await uploadRun(endpoint, payload);
   const runUrl = result.run_url;
+  const configuredScanTypes = Array.isArray(result.scan_types) && result.scan_types.length > 0 ? result.scan_types : scanTypes;
   setOutput('run_url', runUrl);
   setOutput('run_id', result.run_id);
 
   console.log(`VAX run URL: ${runUrl}`);
-  addSummary(`## VAX evidence scan\n\nRun URL: [${runUrl}](${runUrl})\n\nScan types: ${scanTypes.join(', ')}\n\nFiles scanned: ${scan.scan_summary.filesScanned}\n\nArtifacts scanned: ${artifacts.summary.artifactFilesScanned || 0}\n\nAssessment continues in VAX and will not fail this CI job.`);
+  addSummary(`## VAX evidence scan\n\nRun URL: [${runUrl}](${runUrl})\n\nConfigured scan types: ${configuredScanTypes.join(', ')}\n\nFiles scanned: ${scan.scan_summary.filesScanned}\n\nArtifacts scanned: ${artifacts.summary.artifactFilesScanned || 0}\n\nAssessment continues in VAX and will not fail this CI job.`);
 }
 
 main().catch((error) => {

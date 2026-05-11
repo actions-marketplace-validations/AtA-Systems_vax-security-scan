@@ -28,12 +28,12 @@ jobs:
         uses: AtA-Systems/vax-security-scan@v1
         with:
           vax_key: ${{ secrets.VAX_KEY }}
-          scan_types: asvs-l1,asvs-l2,wstg,nist-sp800-161r1-tier3,cmmc-level2,dora
           artifact_paths: assurance-artifacts/vax-manifest.json
 ```
 
 `id-token: write` is required. VAX uses the per-job key to authorize upload to
 the configured assessment and the GitHub OIDC token to capture where the job ran.
+Scan types are selected in the VAX job configuration, not in the workflow file.
 
 The action currently runs OWASP ASVS Level 1, OWASP ASVS Level 2, OWASP WSTG,
 NIST SP 800-161 Rev. 1 Tier 3, CMMC Level 2, and DORA evidence scans locally

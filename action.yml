@@ -12,13 +12,6 @@ inputs:
     description: VAX Firebase function endpoint.
     required: false
     default: https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run
-  scan_types:
-    description: Comma-separated scan types to run. Currently supports asvs-l1, asvs-l2, wstg, nist-sp800-161r1-tier3, cmmc-level2, and dora.
-    required: false
-    default: asvs-l1,asvs-l2
-  scan_levels:
-    description: Deprecated alias for scan_types.
-    required: false
   evidence_paths:
     description: Comma-separated files or directories to scan.
     required: false
