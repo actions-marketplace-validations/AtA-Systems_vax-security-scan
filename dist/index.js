@@ -797,7 +797,7 @@ function walkEvidencePaths(root, requestedPaths, maxFiles) {
   const discovered = [];
   const queue = requestedPaths.map((item) => path.resolve(root, item));
 
-  while (queue.length > 0 && discovered.length < maxFiles * 4) {
+  while (queue.length > 0 && discovered.length < maxFiles * 24) {
     const current = queue.shift();
     if (!current || !fs.existsSync(current)) {
       continue;
@@ -836,11 +836,15 @@ function prioritizeFiles(root, files) {
 
 function filePriority(relativePath) {
   const base = path.basename(relativePath);
+  const ext = path.extname(relativePath).toLowerCase();
   let score = 0;
-  if (IMPORTANT_NAMES.has(base)) score += 50;
-  if (relativePath.includes('.github/workflows/')) score += 40;
-  if (/security|auth|session|login|password|oauth|oidc|jwt|csrf|cors/i.test(relativePath)) score += 30;
-  if (/src|app|lib|server|api/i.test(relativePath)) score += 10;
+  if (detectLanguage(relativePath)) score += 60;
+  if (/src|app|lib|server|api|airflow|providers|tests/i.test(relativePath)) score += 25;
+  if (/security|auth|session|login|password|oauth|oidc|jwt|csrf|cors/i.test(relativePath)) score += 35;
+  if (relativePath.includes('.github/workflows/')) score += 18;
+  if (IMPORTANT_NAMES.has(base)) score += 10;
+  if (/lock$|lock\.json$|\.lock$/i.test(base)) score -= 20;
+  if (['.md', '.txt'].includes(ext) && !/security|threat|architecture|auth/i.test(relativePath)) score -= 8;
   return score;
 }
 
@@ -1417,7 +1421,7 @@ function buildAsvsRequirementResult(id, label, requirements, signals) {
     version: ASVS_CATALOG.version,
     status: gaps > 0 ? 'needs_attention' : unknown > Math.round(controls.length * 0.35) ? 'watch' : 'pass',
     score: max > 0 ? Math.round((weighted / max) * 100) : 0,
-    summary: `${controls.length} ${label} v${ASVS_CATALOG.version} requirements evaluated from repository evidence. ${gaps} deterministic gaps and ${unknown} unknowns require LLM adjudication or buyer review.`,
+    summary: `${controls.length} ${label} v${ASVS_CATALOG.version} requirements evaluated from repository evidence. ${gaps} deterministic gaps and ${unknown} controls need additional evidence or LLM adjudication.`,
     controls
   };
 }
@@ -1562,7 +1566,7 @@ function refreshResultSummary(result) {
   const unknown = controls.filter((control) => control.result === 'unknown').length;
   result.score = Math.round((weighted / max) * 100);
   result.status = gaps > 0 ? 'needs_attention' : unknown > 3 ? 'watch' : 'pass';
-  result.summary = `${controls.length} ${result.label || result.id} control groups evaluated from repository and typed artifact evidence. ${gaps} gaps and ${unknown} unknowns require review.`;
+  result.summary = `${controls.length} ${result.label || result.id} control groups evaluated from repository and typed artifact evidence. ${gaps} gaps and ${unknown} controls need additional evidence.`;
 }
 
 function buildAsvsResult(id, label, controlDefinitions, signals, version = '5.0.0') {
@@ -1582,7 +1586,7 @@ function buildAsvsResult(id, label, controlDefinitions, signals, version = '5.0.
     version,
     status: gaps > 0 ? 'needs_attention' : unknown > 3 ? 'watch' : 'pass',
     score,
-    summary: `${controls.length} ${label} control groups evaluated from repository evidence. ${gaps} gaps and ${unknown} unknowns require review.`,
+    summary: `${controls.length} ${label} control groups evaluated from repository evidence. ${gaps} gaps and ${unknown} controls need additional evidence.`,
     controls
   };
 }
