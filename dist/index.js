@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
-const ACTION_VERSION = '0.0.2';
+const ACTION_VERSION = '0.0.6';
 const DEFAULT_EXCLUDES = new Set([
   '.git',
   '.hg',
@@ -767,6 +768,19 @@ function loadAsvsCatalog() {
 
 function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function encodeArtifactBundle(payload) {
+  const raw = Buffer.from(JSON.stringify(payload), 'utf8');
+  const compressed = zlib.gzipSync(raw);
+  return {
+    content_type: 'application/json',
+    encoding: 'gzip+base64',
+    sha256: sha256(compressed),
+    bytes: compressed.length,
+    uncompressed_bytes: raw.length,
+    data: compressed.toString('base64')
+  };
 }
 
 function isProbablyTextFile(filePath) {
@@ -1692,6 +1706,13 @@ async function main() {
     mappedControls: artifacts.mappedControls
   });
 
+  const evidence = scan.evidence.concat(artifacts.evidence);
+  const scanResults = scan.scan_results;
+  const artifactBundle = encodeArtifactBundle({
+    evidence,
+    scan_results: scanResults
+  });
+
   const payload = {
     vax_key: vaxKey,
     github_oidc_token: oidcToken,
@@ -1703,9 +1724,8 @@ async function main() {
     github_run_id: process.env.GITHUB_RUN_ID,
     github_run_attempt: process.env.GITHUB_RUN_ATTEMPT,
     artifact_paths: artifactPaths,
-    evidence: scan.evidence.concat(artifacts.evidence),
+    artifact_bundle: artifactBundle,
     evidence_truncated: scan.evidence_truncated || artifacts.evidence_truncated,
-    scan_results: scan.scan_results,
     scan_summary: { ...scan.scan_summary, ...artifacts.summary }
   };
 
