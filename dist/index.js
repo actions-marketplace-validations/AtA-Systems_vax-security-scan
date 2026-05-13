@@ -94,6 +94,7 @@ class FatalConfigurationError extends Error {}
 
 const ALL_SCAN_TYPES = ['asvs-l1', 'asvs-l2', 'wstg', 'nist-sp800-161r1-tier3', 'cmmc-level2', 'dora'];
 const SUPPORTED_SCAN_TYPES = new Set(ALL_SCAN_TYPES);
+const ASVS_CATALOG = loadAsvsCatalog();
 
 const ASVS_L1_CONTROLS = [
   {
@@ -750,6 +751,20 @@ function cleanStatus(value) {
   return ['pass', 'partial', 'gap', 'unknown', 'not_applicable'].includes(status) ? status : 'unknown';
 }
 
+function loadAsvsCatalog() {
+  const catalogPath = path.join(__dirname, 'asvs-5.0.0.json');
+  try {
+    const parsed = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+    const requirements = Array.isArray(parsed.requirements) ? parsed.requirements : [];
+    return {
+      version: String(parsed.version || '5.0.0'),
+      requirements: requirements.filter((item) => item && item.id && Number(item.level) <= 2)
+    };
+  } catch (error) {
+    throw new FatalConfigurationError(`Unable to load ASVS catalog at ${catalogPath}: ${error.message}`);
+  }
+}
+
 function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
@@ -1139,6 +1154,9 @@ function collectAsvsSignals(relativePath, content, signals) {
   if (/password policy|lockout|account recovery|identity provider policy|conditional access|step-up/i.test(content)) {
     addAsvsSignal(signals, 'strongIdentityPolicy', relativePath, 'Identity provider or account policy');
   }
+  if (/rate limit|rate-limit|throttle|quota|anti[- ]automation|credential stuffing|brute force|captcha|recaptcha|turnstile|slow down|429/i.test(content)) {
+    addAsvsSignal(signals, 'rateLimit', relativePath, 'Rate limiting or anti-automation control');
+  }
   if (/firebase|auth0|okta|cognito|managed identity|identity provider/i.test(content)) {
     addAsvsSignal(signals, 'managedAuth', relativePath, 'Managed identity or authentication provider');
   }
@@ -1336,10 +1354,10 @@ function collectAsvsSignals(relativePath, content, signals) {
 function buildScanResults(scanTypes, signals, mappedControls = []) {
   const results = {};
   if (scanTypes.includes('asvs-l1')) {
-    results['asvs-l1'] = buildAsvsResult('asvs-l1', 'OWASP ASVS Level 1', ASVS_L1_CONTROLS, signals);
+    results['asvs-l1'] = buildAsvsRequirementResult('asvs-l1', 'OWASP ASVS Level 1', ASVS_CATALOG.requirements.filter((control) => Number(control.level) <= 1), signals);
   }
   if (scanTypes.includes('asvs-l2')) {
-    results['asvs-l2'] = buildAsvsResult('asvs-l2', 'OWASP ASVS Level 2', ASVS_L2_CONTROLS, signals);
+    results['asvs-l2'] = buildAsvsRequirementResult('asvs-l2', 'OWASP ASVS Level 2', ASVS_CATALOG.requirements.filter((control) => Number(control.level) <= 2), signals);
   }
   if (scanTypes.includes('wstg')) {
     results.wstg = buildAsvsResult('wstg', 'OWASP WSTG', WSTG_CONTROLS, signals, 'repository-evidence');
@@ -1366,6 +1384,125 @@ function buildScanResults(scanTypes, signals, mappedControls = []) {
     results.dora = buildAsvsResult('dora', 'DORA', DORA_CONTROLS, signals, 'EU 2022/2554');
   }
   return mergeMappedControls(results, mappedControls);
+}
+
+function buildAsvsRequirementResult(id, label, requirements, signals) {
+  const controls = requirements.map((requirement) => evaluateAsvsRequirement(requirement, signals));
+  const weighted = controls.reduce((total, control) => {
+    const weight = control.severity === 'high' ? 12 : 8;
+    const value = control.result === 'pass' ? weight : control.result === 'partial' ? Math.round(weight * 0.55) : control.result === 'unknown' ? Math.round(weight * 0.25) : 0;
+    return total + value;
+  }, 0);
+  const max = controls.reduce((total, control) => total + (control.severity === 'high' ? 12 : 8), 0);
+  const gaps = controls.filter((control) => control.result === 'gap').length;
+  const unknown = controls.filter((control) => control.result === 'unknown').length;
+  return {
+    id,
+    label,
+    framework: 'OWASP ASVS',
+    version: ASVS_CATALOG.version,
+    status: gaps > 0 ? 'needs_attention' : unknown > Math.round(controls.length * 0.35) ? 'watch' : 'pass',
+    score: max > 0 ? Math.round((weighted / max) * 100) : 0,
+    summary: `${controls.length} ${label} v${ASVS_CATALOG.version} requirements evaluated from repository evidence. ${gaps} deterministic gaps and ${unknown} unknowns require LLM adjudication or buyer review.`,
+    controls
+  };
+}
+
+function evaluateAsvsRequirement(requirement, signals) {
+  const failEvidence = collectSignalEvidence(signals, failSignalsForAsvsRequirement(requirement));
+  if (failEvidence.length > 0) {
+    return asvsRequirementResult(requirement, 'gap', failEvidence, 'Deterministic local scan found evidence that conflicts with this ASVS requirement.');
+  }
+
+  const candidateNames = signalNamesForAsvsRequirement(requirement);
+  const evidence = collectSignalEvidence(signals, candidateNames);
+  if (evidence.length > 1) {
+    return asvsRequirementResult(requirement, 'partial', evidence, 'Local evidence candidates found. LLM adjudication must confirm requirement-level satisfaction.');
+  }
+  if (evidence.length === 1) {
+    return asvsRequirementResult(requirement, 'partial', evidence, 'One local evidence candidate found. LLM adjudication must confirm requirement-level satisfaction.');
+  }
+  if (/file|upload|download|websocket|graphql|webrtc|oauth|oidc|cookie|password/i.test(requirement.section_name || requirement.description || '') && !hasAnySignal(signals, applicabilitySignalsForAsvsRequirement(requirement))) {
+    return asvsRequirementResult(requirement, 'unknown', [], 'No direct applicability or implementation evidence was found in scanned files.');
+  }
+  return asvsRequirementResult(requirement, 'unknown', [], 'No direct evidence found in scanned files.');
+}
+
+function asvsRequirementResult(requirement, result, evidence, rationale) {
+  return {
+    control: requirement.id,
+    framework: 'OWASP ASVS',
+    standard_id: requirement.req_id,
+    category: requirement.section_name || requirement.chapter_name,
+    title: requirement.description,
+    requirement: requirement.description,
+    level: `L${requirement.level}`,
+    severity: Number(requirement.level) <= 1 ? 'high' : 'medium',
+    result,
+    evidence,
+    evidence_source: 'ci_local_scan',
+    assessment_source: 'local_candidate_scan',
+    rationale,
+    files: Array.from(new Set(evidence.map((item) => item.path))).slice(0, 8),
+    recommendation: result === 'gap'
+      ? `Resolve the deterministic finding and verify OWASP ASVS ${requirement.req_id}: ${requirement.description}`
+      : `Provide or implement evidence for OWASP ASVS ${requirement.req_id}: ${requirement.description}`
+  };
+}
+
+function hasAnySignal(signals, names) {
+  return names.some((name) => signals.has(name));
+}
+
+function applicabilitySignalsForAsvsRequirement(requirement) {
+  const text = `${requirement.section_name || ''} ${requirement.description || ''}`.toLowerCase();
+  const names = [];
+  if (/file|upload|download|archive|image/.test(text)) names.push('fileHandling', 'fileControls');
+  if (/websocket/.test(text)) names.push('transportSecurity', 'authn');
+  if (/graphql/.test(text)) names.push('validation', 'apiSecurityTesting');
+  if (/oauth|oidc/.test(text)) names.push('authn', 'managedAuth');
+  if (/cookie/.test(text)) names.push('sessionProtection');
+  if (/password|credential/.test(text)) names.push('authn', 'passwordHashing');
+  if (/webrtc/.test(text)) names.push('transportSecurity');
+  return names.length > 0 ? names : ['securityFiles'];
+}
+
+function failSignalsForAsvsRequirement(requirement) {
+  const text = `${requirement.section_name || ''} ${requirement.description || ''}`.toLowerCase();
+  const names = [];
+  if (/crypt|hash|password/.test(text)) names.push('weakCrypto');
+  if (/cors|cross-origin/.test(text)) names.push('wideCors');
+  if (/https|tls|transport|websocket|hsts/.test(text)) names.push('insecureTransport');
+  if (/file|path|upload|download/.test(text)) names.push('unsafeFileHandling');
+  if (/secret|credential|token|api key|sensitive data/.test(text)) names.push('hardcodedSecret');
+  return names;
+}
+
+function signalNamesForAsvsRequirement(requirement) {
+  const text = `${requirement.chapter_name || ''} ${requirement.section_name || ''} ${requirement.description || ''}`.toLowerCase();
+  const names = new Set();
+  const add = (...items) => items.forEach((item) => names.add(item));
+
+  if (/encode|escape|injection|sanitize|xss|sql|query|command|ldap|xpath|ssrf|template|deserial|xml|xxe|regex|redos/.test(text)) add('validation', 'injectionProtection', 'schemaValidation', 'clientSecurityTesting');
+  if (/business logic|transaction|workflow|sequence|limit|quota|anti-automation|rate limit|dos|denial/.test(text)) add('validation', 'rateLimit', 'securityTesting', 'apiSecurityTesting');
+  if (/browser|content-security-policy|csp|hsts|cors|cross-origin|csrf|sec-fetch|frame|referrer|cookie|dom|jsonp|redirect/.test(text)) add('securityHeaders', 'contentSecurityPolicy', 'hsts', 'sessionProtection', 'webTestAutomation');
+  if (/api|web service|content-type|http method|header|graphql|websocket|message/.test(text)) add('validation', 'apiSecurityTesting', 'transportSecurity', 'securityHeaders');
+  if (/file|upload|download|archive|zip|path|malware|antivirus|content-disposition/.test(text)) add('fileHandling', 'fileControls', 'malwareFileControl');
+  if (/authenticat|credential|password|mfa|multi-factor|passkey|webauthn|account|lockout|recovery/.test(text)) add('authn', 'managedAuth', 'mfa', 'strongIdentityPolicy');
+  if (/session|logout|cookie|csrf|token lifetime|idle|absolute|revocation/.test(text)) add('sessionProtection', 'sessionLifetime', 'tokenRevocation');
+  if (/authori|access control|permission|role|policy|tenant|object|ownership|least privilege/.test(text)) add('authorization', 'centralizedAuthorization', 'policyAuthorization', 'leastPrivilege');
+  if (/jwt|token|claim|signature|jws|jwe/.test(text)) add('crypto', 'keyManagement', 'tokenRevocation');
+  if (/oauth|oidc|openid|client secret|redirect uri|pkce|scope/.test(text)) add('authn', 'managedAuth', 'strongIdentityPolicy', 'transportSecurity');
+  if (/crypto|encrypt|key|random|secret|hash|argon2|bcrypt|scrypt|pbkdf|certificate/.test(text)) add('crypto', 'keyManagement', 'modernEncryption', 'passwordHashing', 'secretManagement');
+  if (/tls|https|transport|certificate|strict-transport/.test(text)) add('transportSecurity', 'hsts', 'tlsEnforcement');
+  if (/configuration|debug|environment|dependency|component|supply|version|hardening/.test(text)) add('securityFiles', 'dependencyManifest', 'dependencyAutomation', 'cicdHardening');
+  if (/data protection|sensitive|privacy|pii|retention|classification|secret/.test(text)) add('secretManagement', 'secretScanning', 'dataClassification');
+  if (/architecture|secure coding|threat model|design|trust boundary/.test(text)) add('securityArchitecture', 'threatModel', 'securityFiles');
+  if (/log|error|exception|audit|monitor/.test(text)) add('logging', 'auditLogging', 'monitoringAlerting');
+  if (/test|scan|vulnerab|sast|dast|penetration/.test(text)) add('securityTesting', 'dastTool', 'webTestAutomation', 'apiSecurityTesting');
+  if (/webrtc|signaling/.test(text)) add('transportSecurity', 'validation', 'authn');
+  if (names.size === 0) add('securityFiles');
+  return Array.from(names);
 }
 
 function mergeMappedControls(results, mappedControls) {
