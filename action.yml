@@ -13,21 +13,21 @@ inputs:
     required: false
     default: https://us-central1-vax-ata-systems.cloudfunctions.net/action_start_run
   evidence_paths:
-    description: Comma-separated files or directories to scan.
+    description: Comma-separated files or directories to scan. Defaults to the repository root.
     required: false
     default: .
   artifact_paths:
-    description: Comma-separated typed artifact manifests or evidence files to ingest in addition to repository evidence.
+    description: Comma-separated typed artifact manifests or evidence files to ingest in addition to repository evidence. Defaults to .vax.
     required: false
-    default: ""
+    default: .vax
   max_files:
     description: Maximum number of evidence files to include.
     required: false
-    default: "300"
+    default: "1000"
   max_bytes:
     description: Maximum total evidence content bytes to upload.
     required: false
-    default: "2000000"
+    default: "8000000"
   max_file_bytes:
     description: Maximum content bytes per evidence file.
     required: false

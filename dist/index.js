@@ -2,8 +2,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const packageJson = require('../package.json');
 
-const ACTION_VERSION = '0.0.7';
+const ACTION_VERSION = packageJson.version;
 const DEFAULT_EXCLUDES = new Set([
   '.git',
   '.hg',
@@ -1013,6 +1014,8 @@ function artifactTypeFromPath(relativePath) {
   if (/incident/.test(lower)) return 'incident_response_plan';
   if (/continuity|disaster|backup|recovery|bcp/.test(lower)) return 'business_continuity_plan';
   if (/vulnerability|sast|dast|scan/.test(lower)) return 'vulnerability_scan';
+  if (/validation|validator|schema|zod|joi|pydantic|marshmallow|output.encoding|escaping|xss|injection/.test(lower)) return 'validation_report';
+  if (/security.test|abuse.case|api.security|wstg/.test(lower)) return 'security_test_report';
   if (/security.plan|ssp|system.security/.test(lower)) return 'security_plan';
   return 'generic';
 }
@@ -1049,6 +1052,9 @@ function artifactSignalsForType(type) {
     business_continuity_plan: [{ name: 'contingencyPlanning', detail: 'Typed continuity plan artifact' }, { name: 'backupRecovery', detail: 'Recovery procedure artifact' }],
     vulnerability_scan: [{ name: 'vulnerabilityManagement', detail: 'Typed vulnerability scan artifact' }, { name: 'securityTesting', detail: 'Security testing artifact' }],
     penetration_test_report: [{ name: 'securityTesting', detail: 'Typed penetration test artifact' }, { name: 'resilienceTesting', detail: 'Resilience or threat-led testing artifact' }],
+    security_test_report: [{ name: 'securityTesting', detail: 'Typed security test artifact' }, { name: 'apiSecurityTesting', detail: 'Typed API security test artifact' }],
+    validation_report: [{ name: 'validation', detail: 'Typed input validation artifact' }, { name: 'schemaValidation', detail: 'Typed schema validation artifact' }, { name: 'injectionProtection', detail: 'Typed injection protection artifact' }],
+    output_encoding: [{ name: 'injectionProtection', detail: 'Typed output encoding or escaping artifact' }, { name: 'clientSecurityTesting', detail: 'Typed browser/client injection protection artifact' }],
     policy: [{ name: 'policyAuthorization', detail: 'Typed policy artifact' }],
     access_review: [{ name: 'leastPrivilege', detail: 'Typed access review artifact' }]
   };
@@ -1366,9 +1372,9 @@ async function main() {
   const scanTypes = ALL_SCAN_TYPES;
   const unsupportedScanTypes = [];
   const evidencePaths = parseList(getInput('evidence_paths', '.'));
-  const artifactPaths = parseList(getInput('artifact_paths', ''));
-  const maxFiles = parseNumber(getInput('max_files', '300'), 300);
-  const maxBytes = parseNumber(getInput('max_bytes', '2000000'), 2000000);
+  const artifactPaths = parseList(getInput('artifact_paths', '.vax'));
+  const maxFiles = parseNumber(getInput('max_files', '1000'), 1000);
+  const maxBytes = parseNumber(getInput('max_bytes', '8000000'), 8000000);
   const maxFileBytes = parseNumber(getInput('max_file_bytes', '40000'), 40000);
 
   if (!vaxKey) {

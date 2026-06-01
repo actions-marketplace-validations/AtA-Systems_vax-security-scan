@@ -28,7 +28,6 @@ jobs:
         uses: AtA-Systems/vax-security-scan@v1
         with:
           vax_key: ${{ secrets.VAX_KEY }}
-          artifact_paths: assurance-artifacts/vax-manifest.json
 ```
 
 `id-token: write` is required. VAX uses the per-job key to authorize upload to
@@ -44,11 +43,13 @@ run page instead of failing CI.
 
 ## Evidence bounds
 
-VAX uploads a bounded evidence sample rather than every repository file. By
-default the action includes up to 300 prioritized source and configuration files,
-up to 2,000,000 total evidence bytes, and up to 40,000 bytes per file. Files are
-prioritized toward security-relevant paths and names such as auth, session,
-login, OAuth, JWT, CSRF, API, server, and tests.
+VAX starts from the repository root by default so the assessor can discover
+application code, configuration, and tests without requiring hand-selected
+source paths. Uploads are still bounded for CI runtime and token cost: by
+default the action includes up to 1,000 prioritized source and configuration
+files, up to 8,000,000 total evidence bytes, and up to 40,000 bytes per file.
+Files are prioritized toward security-relevant paths and names such as auth,
+session, login, OAuth, JWT, CSRF, API, server, and tests.
 
 For frontend-heavy repositories, pass explicit `evidence_paths` or raise the
 bounds further so client-side code is represented alongside backend services:
@@ -64,11 +65,13 @@ with:
 
 ## Typed artifacts
 
-Use `artifact_paths` for evidence that should not be inferred from repository
-contents alone, such as SBOMs, SLSA provenance, vulnerability scan exports,
-POA&M records, risk registers, security plans, incident response plans, and
-business continuity artifacts. JSON manifests can also provide explicit control
-mappings, which replace inferred results for the same control deterministically:
+Put supplemental VAX evidence in a `.vax` directory at the repository root.
+The action ingests `.vax` automatically. Use it for evidence that should not be
+inferred from repository contents alone, such as SBOMs, SLSA provenance,
+vulnerability scan exports, POA&M records, risk registers, security plans,
+incident response plans, business continuity artifacts, and validation notes.
+JSON manifests can also provide explicit control mappings, which replace
+inferred results for the same control deterministically:
 
 ```json
 {
@@ -92,3 +95,5 @@ mappings, which replace inferred results for the same control deterministically:
 
 Known artifact `type` values also map to local control signals even without an
 explicit `controls` array, so typed evidence remains traceable in the scorecard.
+See [`docs/evidence-manifest.md`](../docs/evidence-manifest.md) for a fuller
+manifest example, including input/output validation evidence.
