@@ -23,15 +23,15 @@ inputs:
   max_files:
     description: Maximum number of evidence files to include.
     required: false
-    default: "120"
+    default: "300"
   max_bytes:
     description: Maximum total evidence content bytes to upload.
     required: false
-    default: "750000"
+    default: "2000000"
   max_file_bytes:
     description: Maximum content bytes per evidence file.
     required: false
-    default: "24000"
+    default: "40000"
 runs:
   using: node20
   main: dist/index.js

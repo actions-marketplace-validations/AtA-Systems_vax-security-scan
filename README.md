@@ -42,6 +42,26 @@ The action fails for missing runtime requirements such as `VAX_KEY`, OIDC
 permission, or upload failure. Security assessment gaps are reported on the VAX
 run page instead of failing CI.
 
+## Evidence bounds
+
+VAX uploads a bounded evidence sample rather than every repository file. By
+default the action includes up to 300 prioritized source and configuration files,
+up to 2,000,000 total evidence bytes, and up to 40,000 bytes per file. Files are
+prioritized toward security-relevant paths and names such as auth, session,
+login, OAuth, JWT, CSRF, API, server, and tests.
+
+For frontend-heavy repositories, pass explicit `evidence_paths` or raise the
+bounds further so client-side code is represented alongside backend services:
+
+```yaml
+with:
+  vax_key: ${{ secrets.VAX_KEY }}
+  evidence_paths: webapp/packages/webui/src,webapp/packages/api
+  max_files: 500
+  max_bytes: 4000000
+  max_file_bytes: 60000
+```
+
 ## Typed artifacts
 
 Use `artifact_paths` for evidence that should not be inferred from repository

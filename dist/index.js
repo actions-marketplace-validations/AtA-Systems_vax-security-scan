@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
-const ACTION_VERSION = '0.0.6';
+const ACTION_VERSION = '0.0.7';
 const DEFAULT_EXCLUDES = new Set([
   '.git',
   '.hg',
@@ -874,7 +874,6 @@ function scanRepository(root, options) {
   const languages = {};
   const manifests = [];
   const securityFiles = [];
-  const localSignals = new Map();
   const asvsSignals = new Map();
   let bytesIncluded = 0;
   let truncated = false;
@@ -893,10 +892,6 @@ function scanRepository(root, options) {
     if (IMPORTANT_NAMES.has(base) || /lock$|lock\.json$|\.lock$/i.test(base)) manifests.push(relativePath);
     if (/security|auth|session|login|password|oauth|oidc|jwt|csrf|cors|dependabot|codeowners/i.test(relativePath)) {
       securityFiles.push(relativePath);
-      addAsvsSignal(asvsSignals, 'securityFiles', relativePath, 'Security-relevant file path');
-    }
-    if (IMPORTANT_NAMES.has(base) || /lock$|lock\.json$|\.lock$/i.test(base)) {
-      addAsvsSignal(asvsSignals, 'dependencyManifest', relativePath, 'Dependency manifest or lockfile');
     }
 
     const remaining = options.maxBytes - bytesIncluded;
@@ -910,8 +905,6 @@ function scanRepository(root, options) {
     bytesIncluded += Buffer.byteLength(content, 'utf8');
     if (raw.length > maxForFile) truncated = true;
 
-    collectLocalSignals(relativePath, content, localSignals);
-    collectAsvsSignals(relativePath, content, asvsSignals);
     evidence.push({
       path: relativePath,
       sha256: fileHash,
@@ -932,7 +925,6 @@ function scanRepository(root, options) {
       languages,
       manifests: manifests.slice(0, 80),
       securityFiles: securityFiles.slice(0, 80),
-      localFindings: Array.from(localSignals.values()),
       scanTypes: options.scanTypes,
       unsupportedScanTypes: options.unsupportedScanTypes
     }
@@ -1120,252 +1112,13 @@ function mergeSignalMaps(target, source) {
   }
 }
 
-function addSignal(signals, id, title, severity, filePath) {
-  if (!signals.has(id)) {
-    signals.set(id, { id, title, severity, paths: [] });
-  }
-  const signal = signals.get(id);
-  if (!signal.paths.includes(filePath)) signal.paths.push(filePath);
-}
-
-function collectLocalSignals(relativePath, content, signals) {
-  if (/password|secret|api[_-]?key/i.test(content)) {
-    addSignal(signals, 'secret-keyword', 'Secret-related keywords found', 'info', relativePath);
-  }
-  if (/cors\(\s*\{?[^}]*origin\s*:\s*['"]\*/i.test(content) || /Access-Control-Allow-Origin['"]?\s*[:,]\s*['"]\*/i.test(content)) {
-    addSignal(signals, 'wide-cors', 'Potential wildcard CORS configuration', 'medium', relativePath);
-  }
-  if (/csrf/i.test(content)) {
-    addSignal(signals, 'csrf-signal', 'CSRF handling appears in code', 'info', relativePath);
-  }
-  if (/helmet|Content-Security-Policy|Strict-Transport-Security|X-Content-Type-Options/i.test(content)) {
-    addSignal(signals, 'security-headers', 'Security header controls appear in code', 'info', relativePath);
-  }
-  if (/jwt|oidc|oauth|saml|session/i.test(content)) {
-    addSignal(signals, 'authn-authz-signal', 'Authentication or session logic appears in code', 'info', relativePath);
-  }
-}
-
-function addAsvsSignal(signals, name, filePath, detail, source = 'ci_local_scan') {
+function addAsvsSignal(signals, name, filePath, detail, source = 'repository_evidence') {
   if (!signals.has(name)) {
     signals.set(name, []);
   }
   const entries = signals.get(name);
   if (!entries.some((entry) => entry.path === filePath && entry.detail === detail)) {
     entries.push({ path: filePath, detail, source });
-  }
-}
-
-function collectAsvsSignals(relativePath, content, signals) {
-  if (/threat model|threatmodel|abuse case|trust boundary|data flow|security architecture|secure design/i.test(content)) {
-    addAsvsSignal(signals, 'threatModel', relativePath, 'Threat model, abuse case, or trust boundary evidence');
-  }
-  if (/architecture decision|ADR|security architecture|trust boundary|data flow diagram|DFD/i.test(content)) {
-    addAsvsSignal(signals, 'securityArchitecture', relativePath, 'Security architecture documentation');
-  }
-  if (/firebase|auth0|okta|cognito|passport|nextauth|oauth|oidc|saml|login|signin|authenticate/i.test(content)) {
-    addAsvsSignal(signals, 'authn', relativePath, 'Authentication provider, flow, or handler');
-  }
-  if (/mfa|multi-factor|multifactor|2fa|totp|webauthn|passkey|authenticator/i.test(content)) {
-    addAsvsSignal(signals, 'mfa', relativePath, 'MFA or phishing-resistant authentication signal');
-  }
-  if (/password policy|lockout|account recovery|identity provider policy|conditional access|step-up/i.test(content)) {
-    addAsvsSignal(signals, 'strongIdentityPolicy', relativePath, 'Identity provider or account policy');
-  }
-  if (/rate limit|rate-limit|throttle|quota|anti[- ]automation|credential stuffing|brute force|captcha|recaptcha|turnstile|slow down|429/i.test(content)) {
-    addAsvsSignal(signals, 'rateLimit', relativePath, 'Rate limiting or anti-automation control');
-  }
-  if (/firebase|auth0|okta|cognito|managed identity|identity provider/i.test(content)) {
-    addAsvsSignal(signals, 'managedAuth', relativePath, 'Managed identity or authentication provider');
-  }
-  if (/HttpOnly|SameSite|Secure;|secure\s*:\s*true|sameSite|httpOnly|session.*cookie|csrf/i.test(content)) {
-    addAsvsSignal(signals, 'sessionProtection', relativePath, 'Cookie, CSRF, or session protection');
-  }
-  if (/idle timeout|absolute timeout|session timeout|maxAge|max_age|expiresIn|expiration|exp\s*:|refresh token|token lifetime/i.test(content)) {
-    addAsvsSignal(signals, 'sessionLifetime', relativePath, 'Session or token lifetime control');
-  }
-  if (/revoke|revocation|logout|invalidate|blacklist|refresh token rotation|rotate refresh/i.test(content)) {
-    addAsvsSignal(signals, 'tokenRevocation', relativePath, 'Token/session revocation or rotation');
-  }
-  if (/authorize|authorization|permission|policy|role|rbac|abac|owner_uid|ownerId|require_auth|isAdmin|middleware/i.test(content)) {
-    addAsvsSignal(signals, 'authorization', relativePath, 'Authorization or ownership check');
-  }
-  if (/middleware|guard|policy|rules_version|firestore\.rules|storage\.rules|beforeEach|require_auth|requireRole|can\(|authorize\(/i.test(content)) {
-    addAsvsSignal(signals, 'centralizedAuthorization', relativePath, 'Centralized authorization guard, rules, or middleware');
-  }
-  if (/rbac|abac|policy|permission matrix|least privilege|deny by default|allow read, write: if/i.test(content)) {
-    addAsvsSignal(signals, 'policyAuthorization', relativePath, 'Policy-based authorization signal');
-  }
-  if (/zod|joi|yup|ajv|pydantic|marshmallow|validator|validate|sanitize|escape|parameterized|prepared statement|req\.body|request\.data/i.test(content)) {
-    addAsvsSignal(signals, 'validation', relativePath, 'Validation, sanitization, or parameterized input handling');
-  }
-  if (/parameterized|prepared statement|sqlalchemy|sequelize|prisma|knex|escape|sanitize|encodeURIComponent|DOMPurify/i.test(content)) {
-    addAsvsSignal(signals, 'injectionProtection', relativePath, 'Injection-oriented input handling safeguard');
-  }
-  if (/zod|joi|yup|ajv|pydantic|marshmallow|schema|json schema|typebox|class-validator|FormRequest|serializer/i.test(content)) {
-    addAsvsSignal(signals, 'schemaValidation', relativePath, 'Schema-based or typed validation');
-  }
-  if (/crypto|bcrypt|argon2|scrypt|pbkdf2|sha256|AES-GCM|libsodium|fernet|secrets\./i.test(content)) {
-    addAsvsSignal(signals, 'crypto', relativePath, 'Standard cryptography or password hashing library');
-  }
-  if (/argon2|bcrypt|scrypt|pbkdf2/i.test(content)) {
-    addAsvsSignal(signals, 'passwordHashing', relativePath, 'Password hashing algorithm');
-  }
-  if (/AES-GCM|AES-256-GCM|libsodium|xchacha|fernet|envelope encryption|KMS|Cloud KMS|Key Vault|Secrets Manager|Secret Manager/i.test(content)) {
-    addAsvsSignal(signals, 'keyManagement', relativePath, 'Managed keys or modern encryption');
-  }
-  if (/AES-GCM|libsodium|xchacha|fernet|envelope encryption/i.test(content)) {
-    addAsvsSignal(signals, 'modernEncryption', relativePath, 'Modern authenticated encryption signal');
-  }
-  if (/\b(md5|sha1|des|rc4)\b/i.test(content)) {
-    addAsvsSignal(signals, 'weakCrypto', relativePath, 'Potential weak cryptographic algorithm');
-  }
-  if (/logger|logging|audit|console\.(error|warn)|try\s*\{|catch\s*\(|except\s+Exception|HttpsError|raise\s+/i.test(content)) {
-    addAsvsSignal(signals, 'logging', relativePath, 'Error handling or logging signal');
-  }
-  if (/audit|security event|auth.*event|authorization.*event|admin.*event|sensitive.*access/i.test(content)) {
-    addAsvsSignal(signals, 'auditLogging', relativePath, 'Security event or audit logging');
-  }
-  if (/process\.env|secrets\.|Secret Manager|secretmanager|github\.secret|GITHUB_TOKEN|VAX_KEY|api key|api_key/i.test(content)) {
-    addAsvsSignal(signals, 'secretManagement', relativePath, 'Runtime or CI secret handling');
-  }
-  if (/secret scanning|gitleaks|trufflehog|detect-secrets|push protection|secretlint/i.test(content)) {
-    addAsvsSignal(signals, 'secretScanning', relativePath, 'Secret scanning automation');
-  }
-  if (/data classification|retention|PII|personal data|sensitive data|DLP|privacy/i.test(content)) {
-    addAsvsSignal(signals, 'dataClassification', relativePath, 'Sensitive data handling or classification');
-  }
-  if (/(password|secret|token|api[_-]?key)\s*[:=]\s*['"][^'"]{12,}['"]/i.test(content)) {
-    addAsvsSignal(signals, 'hardcodedSecret', relativePath, 'Potential hard-coded secret value');
-  }
-  if (/https:\/\/|Strict-Transport-Security|forceSSL|redirectToHttps|ssl|tls/i.test(content)) {
-    addAsvsSignal(signals, 'transportSecurity', relativePath, 'TLS or HTTPS configuration');
-  }
-  if (/Strict-Transport-Security|HSTS/i.test(content)) {
-    addAsvsSignal(signals, 'hsts', relativePath, 'HSTS configuration');
-  }
-  if (/forceSSL|redirectToHttps|httpsOnly|minimum TLS|min_tls|sslmode|requireSSL|secure: always/i.test(content)) {
-    addAsvsSignal(signals, 'tlsEnforcement', relativePath, 'TLS enforcement configuration');
-  }
-  if (/http:\/\/(?!localhost|127\.0\.0\.1|0\.0\.0\.0)/i.test(content)) {
-    addAsvsSignal(signals, 'insecureTransport', relativePath, 'Non-local HTTP URL');
-  }
-  if (/helmet|Content-Security-Policy|Strict-Transport-Security|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Permissions-Policy/i.test(content)) {
-    addAsvsSignal(signals, 'securityHeaders', relativePath, 'Security header configuration');
-  }
-  if (/Content-Security-Policy|contentSecurityPolicy|default-src|script-src|frame-ancestors/i.test(content)) {
-    addAsvsSignal(signals, 'contentSecurityPolicy', relativePath, 'Content Security Policy');
-  }
-  if (/cors\(\s*\{?[^}]*origin\s*:\s*['"]\*/i.test(content) || /Access-Control-Allow-Origin['"]?\s*[:,]\s*['"]\*/i.test(content)) {
-    addAsvsSignal(signals, 'wideCors', relativePath, 'Wildcard CORS configuration');
-  }
-  if (/upload|multipart|multer|formidable|FileReader|bucket\.blob|storage\.bucket|open\(|readFile|writeFile|path\.join/i.test(content)) {
-    addAsvsSignal(signals, 'fileHandling', relativePath, 'File or object storage handling');
-  }
-  if (/fileSize|limits\s*:|content-type|mime|basename|normalize|secure_filename|allowedExtensions|virus|malware/i.test(content)) {
-    addAsvsSignal(signals, 'fileControls', relativePath, 'File validation or storage control');
-  }
-  if (/virus|malware|clamav|yara|quarantine|content disarm|sandbox/i.test(content)) {
-    addAsvsSignal(signals, 'malwareFileControl', relativePath, 'Malware-oriented file handling control');
-  }
-  if (/path\.(join|resolve)|readFile|writeFile|open\(/i.test(content) && !/normalize|basename|resolve\(/i.test(content)) {
-    addAsvsSignal(signals, 'unsafeFileHandling', relativePath, 'File path operation without obvious normalization');
-  }
-  if (/dependabot|renovate|dependency-review|npm audit|pip-audit|safety|osv-scanner|snyk|github\/codeql-action/i.test(content) || /dependabot|renovate/i.test(relativePath)) {
-    addAsvsSignal(signals, 'dependencyAutomation', relativePath, 'Dependency vulnerability or update automation');
-  }
-  if (/codeql|semgrep|sast|static analysis|dependency-review|gitleaks|trufflehog|zap|security test|security scan|osv-scanner|snyk/i.test(content)) {
-    addAsvsSignal(signals, 'securityTesting', relativePath, 'Security testing or scanning automation');
-  }
-  if (/owasp zap|zaproxy|zap-baseline|zap-full-scan|dast|dynamic application security testing|burp|nuclei/i.test(content)) {
-    addAsvsSignal(signals, 'dastTool', relativePath, 'Dynamic web security testing tool');
-  }
-  if (/playwright|cypress|selenium|webdriver|puppeteer|vitest|jest|testing-library/i.test(content) && /login|auth|csrf|cors|permission|role|security|xss|session/i.test(content)) {
-    addAsvsSignal(signals, 'webTestAutomation', relativePath, 'Browser or web workflow security test automation');
-  }
-  if (/supertest|postman|newman|schemathesis|dredd|openapi|swagger|api.*test|contract test/i.test(content) && /auth|authorization|permission|validate|schema|security/i.test(content)) {
-    addAsvsSignal(signals, 'apiSecurityTesting', relativePath, 'API security or contract test evidence');
-  }
-  if (/xss|cross-site scripting|dangerouslySetInnerHTML|innerHTML|DOMPurify|sanitize/i.test(content)) {
-    addAsvsSignal(signals, 'clientSecurityTesting', relativePath, 'Client-side security control or test evidence');
-  }
-  if (/supply chain risk|SCRM|supplier risk|third[- ]party risk|vendor risk|critical supplier|external provider/i.test(content)) {
-    addAsvsSignal(signals, 'scrmPlan', relativePath, 'Supply chain risk management procedure or responsibility');
-  }
-  if (/ICT risk|information and communication technology risk|digital operational resilience|operational resilience|DORA|critical function|critical service|technology risk|cyber risk management/i.test(content)) {
-    addAsvsSignal(signals, 'ictRiskManagement', relativePath, 'ICT risk management or digital operational resilience evidence');
-  }
-  if (/supplier inventory|vendor inventory|third[- ]party inventory|service catalog|dependency inventory|software inventory|asset inventory/i.test(content)) {
-    addAsvsSignal(signals, 'supplierInventory', relativePath, 'Supplier, service, asset, or dependency inventory');
-  }
-  if (/ICT asset|information asset|system inventory|application inventory|service inventory|critical asset|critical system|configuration management database|\bCMDB\b/i.test(content)) {
-    addAsvsSignal(signals, 'ictAssetInventory', relativePath, 'ICT asset or critical system inventory');
-  }
-  if (/SBOM|CycloneDX|SPDX|software bill of materials|bom\.(json|xml)|syft|dependency-track/i.test(content) || /sbom|cyclonedx|spdx/i.test(relativePath)) {
-    addAsvsSignal(signals, 'sbom', relativePath, 'Software bill of materials evidence');
-  }
-  if (/SLSA|provenance|attestation|in-toto|sigstore|cosign|artifact attest|build attest/i.test(content)) {
-    addAsvsSignal(signals, 'provenance', relativePath, 'Build provenance or attestation evidence');
-  }
-  if (/checksum|sha256sum|signature|signed artifact|verify artifact|artifact integrity|container signing|image signing/i.test(content)) {
-    addAsvsSignal(signals, 'artifactIntegrity', relativePath, 'Artifact integrity verification');
-  }
-  if (/permissions:\s*(read|contents: read|id-token: write)|protected branch|required review|environment protection|pin.*actions|CODEOWNERS|least[- ]privilege token/i.test(content) || /CODEOWNERS/i.test(relativePath)) {
-    addAsvsSignal(signals, 'cicdHardening', relativePath, 'CI/CD change or release protection');
-  }
-  if (/vulnerability management|vulnerability remediation|patch management|CVE|CVSS|security advisory|dependabot|renovate|osv-scanner|snyk|npm audit|pip-audit/i.test(content)) {
-    addAsvsSignal(signals, 'vulnerabilityManagement', relativePath, 'Vulnerability monitoring or remediation evidence');
-  }
-  if (/risk assessment|risk register|risk analysis|risk treatment|security risk|control risk|supplier risk assessment/i.test(content)) {
-    addAsvsSignal(signals, 'riskAssessment', relativePath, 'Risk assessment or risk tracking evidence');
-  }
-  if (/system security plan|\bSSP\b|security assessment|assessment objective|control assessment|control review|CMMC|NIST SP 800-171|800-171/i.test(content)) {
-    addAsvsSignal(signals, 'securityAssessment', relativePath, 'Security assessment or control review evidence');
-  }
-  if (/system security plan|\bSSP\b|security plan|control implementation summary/i.test(content)) {
-    addAsvsSignal(signals, 'securityPlan', relativePath, 'System security plan evidence');
-  }
-  if (/POA&M|plan of action|milestones|remediation plan|corrective action plan/i.test(content)) {
-    addAsvsSignal(signals, 'poam', relativePath, 'POA&M or remediation tracking evidence');
-  }
-  if (/configuration baseline|secure baseline|hardened image|IaC|infrastructure as code|terraform|cloudformation|pulumi|kubernetes policy|OPA|conftest|checkov|tfsec/i.test(content)) {
-    addAsvsSignal(signals, 'configurationBaseline', relativePath, 'Secure configuration baseline or policy-as-code');
-  }
-  if (/least privilege|least-privilege|minimum privilege|privileged access|admin access|break glass|service account/i.test(content)) {
-    addAsvsSignal(signals, 'leastPrivilege', relativePath, 'Least-privilege access control evidence');
-  }
-  if (/incident response|IR plan|security incident|supplier compromise|third[- ]party incident|dependency compromise|coordinated disclosure|breach notification/i.test(content)) {
-    addAsvsSignal(signals, 'incidentResponse', relativePath, 'Incident response or notification procedure');
-  }
-  if (/ICT incident|major incident|incident classification|incident reporting|incident notification|incident escalation|regulatory notification|customer notification/i.test(content)) {
-    addAsvsSignal(signals, 'ictIncidentManagement', relativePath, 'ICT incident classification, escalation, or notification evidence');
-  }
-  if (/contingency plan|business continuity|BCP|disaster recovery|backup|restore|recovery point|recovery time|alternate supplier|fallback provider/i.test(content)) {
-    addAsvsSignal(signals, 'contingencyPlanning', relativePath, 'Continuity or fallback planning');
-  }
-  if (/backup|restore|snapshot|replication|recovery|disaster recovery/i.test(content)) {
-    addAsvsSignal(signals, 'backupRecovery', relativePath, 'Backup or recovery control');
-  }
-  if (/monitoring|alerting|SIEM|SOC|EDR|detection rule|observability|on-call|pager|security alert|availability alert/i.test(content)) {
-    addAsvsSignal(signals, 'monitoringAlerting', relativePath, 'Monitoring, alerting, or detection evidence');
-  }
-  if (/resilience test|operational resilience test|tabletop|scenario test|failover test|restore test|backup test|disaster recovery test|business continuity test|penetration test|red team|threat-led penetration/i.test(content)) {
-    addAsvsSignal(signals, 'resilienceTesting', relativePath, 'Resilience, recovery, or threat-led testing evidence');
-  }
-  if (/ICT third[- ]party|third[- ]party ICT|outsourcing|critical provider|concentration risk|substitutability|exit plan|exit strategy|supplier exit/i.test(content)) {
-    addAsvsSignal(signals, 'ictThirdPartyRisk', relativePath, 'ICT third-party provider risk evidence');
-  }
-  if (/exit plan|exit strategy|supplier exit|provider exit|substitution plan|alternate provider|fallback provider/i.test(content)) {
-    addAsvsSignal(signals, 'thirdPartyExitPlan', relativePath, 'Third-party provider exit or substitution plan');
-  }
-  if (/change management|change control|release approval|rollback|deployment approval|environment protection|production change|CAB\b/i.test(content)) {
-    addAsvsSignal(signals, 'changeManagement', relativePath, 'Change or release management control');
-  }
-  if (/threat intelligence|intel sharing|information sharing|ISAC|IOC|indicator of compromise|vulnerability disclosure/i.test(content)) {
-    addAsvsSignal(signals, 'threatIntelligence', relativePath, 'Threat intelligence or security information sharing');
-  }
-  if (/post[- ]incident|postmortem|lessons learned|root cause analysis|\bRCA\b|after action review/i.test(content)) {
-    addAsvsSignal(signals, 'postIncidentReview', relativePath, 'Post-incident review or lessons learned evidence');
   }
 }
 
@@ -1406,44 +1159,21 @@ function buildScanResults(scanTypes, signals, mappedControls = []) {
 
 function buildAsvsRequirementResult(id, label, requirements, signals) {
   const controls = requirements.map((requirement) => evaluateAsvsRequirement(requirement, signals));
-  const weighted = controls.reduce((total, control) => {
-    const weight = control.severity === 'high' ? 12 : 8;
-    const value = control.result === 'pass' ? weight : control.result === 'partial' ? Math.round(weight * 0.55) : control.result === 'unknown' ? Math.round(weight * 0.25) : 0;
-    return total + value;
-  }, 0);
-  const max = controls.reduce((total, control) => total + (control.severity === 'high' ? 12 : 8), 0);
-  const gaps = controls.filter((control) => control.result === 'gap').length;
-  const unknown = controls.filter((control) => control.result === 'unknown').length;
   return {
     id,
     label,
     framework: 'OWASP ASVS',
     version: ASVS_CATALOG.version,
-    status: gaps > 0 ? 'needs_attention' : unknown > Math.round(controls.length * 0.35) ? 'watch' : 'pass',
-    score: max > 0 ? Math.round((weighted / max) * 100) : 0,
-    summary: `${controls.length} ${label} v${ASVS_CATALOG.version} requirements evaluated from repository evidence. ${gaps} deterministic gaps and ${unknown} controls need additional evidence or LLM adjudication.`,
+    status: 'pending',
+    score: null,
+    summary: `${controls.length} ${label} v${ASVS_CATALOG.version} requirements queued for assessment from uploaded repository evidence.`,
     controls
   };
 }
 
 function evaluateAsvsRequirement(requirement, signals) {
-  const failEvidence = collectSignalEvidence(signals, failSignalsForAsvsRequirement(requirement));
-  if (failEvidence.length > 0) {
-    return asvsRequirementResult(requirement, 'gap', failEvidence, 'Deterministic local scan found evidence that conflicts with this ASVS requirement.');
-  }
-
-  const candidateNames = signalNamesForAsvsRequirement(requirement);
-  const evidence = collectSignalEvidence(signals, candidateNames);
-  if (evidence.length > 1) {
-    return asvsRequirementResult(requirement, 'partial', evidence, 'Local evidence candidates found. LLM adjudication must confirm requirement-level satisfaction.');
-  }
-  if (evidence.length === 1) {
-    return asvsRequirementResult(requirement, 'partial', evidence, 'One local evidence candidate found. LLM adjudication must confirm requirement-level satisfaction.');
-  }
-  if (/file|upload|download|websocket|graphql|webrtc|oauth|oidc|cookie|password/i.test(requirement.section_name || requirement.description || '') && !hasAnySignal(signals, applicabilitySignalsForAsvsRequirement(requirement))) {
-    return asvsRequirementResult(requirement, 'unknown', [], 'No direct applicability or implementation evidence was found in scanned files.');
-  }
-  return asvsRequirementResult(requirement, 'unknown', [], 'No direct evidence found in scanned files.');
+  const evidence = collectSignalEvidence(signals, signalNamesForAsvsRequirement(requirement));
+  return asvsRequirementResult(requirement, 'pending', evidence, 'Awaiting assessment against uploaded repository evidence.');
 }
 
 function asvsRequirementResult(requirement, result, evidence, rationale) {
@@ -1458,42 +1188,12 @@ function asvsRequirementResult(requirement, result, evidence, rationale) {
     severity: Number(requirement.level) <= 1 ? 'high' : 'medium',
     result,
     evidence,
-    evidence_source: 'ci_local_scan',
-    assessment_source: 'local_candidate_scan',
+    evidence_source: evidence.length > 0 ? 'typed_artifact' : 'uploaded_repository',
+    assessment_source: 'pending_assessment',
     rationale,
     files: Array.from(new Set(evidence.map((item) => item.path))).slice(0, 8),
-    recommendation: result === 'gap'
-      ? `Resolve the deterministic finding and verify OWASP ASVS ${requirement.req_id}: ${requirement.description}`
-      : `Provide or implement evidence for OWASP ASVS ${requirement.req_id}: ${requirement.description}`
+    recommendation: `Assess OWASP ASVS ${requirement.req_id}: ${requirement.description}`
   };
-}
-
-function hasAnySignal(signals, names) {
-  return names.some((name) => signals.has(name));
-}
-
-function applicabilitySignalsForAsvsRequirement(requirement) {
-  const text = `${requirement.section_name || ''} ${requirement.description || ''}`.toLowerCase();
-  const names = [];
-  if (/file|upload|download|archive|image/.test(text)) names.push('fileHandling', 'fileControls');
-  if (/websocket/.test(text)) names.push('transportSecurity', 'authn');
-  if (/graphql/.test(text)) names.push('validation', 'apiSecurityTesting');
-  if (/oauth|oidc/.test(text)) names.push('authn', 'managedAuth');
-  if (/cookie/.test(text)) names.push('sessionProtection');
-  if (/password|credential/.test(text)) names.push('authn', 'passwordHashing');
-  if (/webrtc/.test(text)) names.push('transportSecurity');
-  return names.length > 0 ? names : ['securityFiles'];
-}
-
-function failSignalsForAsvsRequirement(requirement) {
-  const text = `${requirement.section_name || ''} ${requirement.description || ''}`.toLowerCase();
-  const names = [];
-  if (/crypt|hash|password/.test(text)) names.push('weakCrypto');
-  if (/cors|cross-origin/.test(text)) names.push('wideCors');
-  if (/https|tls|transport|websocket|hsts/.test(text)) names.push('insecureTransport');
-  if (/file|path|upload|download/.test(text)) names.push('unsafeFileHandling');
-  if (/secret|credential|token|api key|sensitive data/.test(text)) names.push('hardcodedSecret');
-  return names;
 }
 
 function signalNamesForAsvsRequirement(requirement) {
@@ -1571,42 +1271,20 @@ function refreshResultSummary(result) {
 
 function buildAsvsResult(id, label, controlDefinitions, signals, version = '5.0.0') {
   const controls = controlDefinitions.map((control) => evaluateAsvsControl(control, signals));
-  const weighted = controls.reduce((total, control) => {
-    const weight = control.severity === 'high' ? 12 : 8;
-    const value = control.result === 'pass' ? weight : control.result === 'partial' ? Math.round(weight * 0.55) : control.result === 'unknown' ? Math.round(weight * 0.25) : 0;
-    return total + value;
-  }, 0);
-  const max = controls.reduce((total, control) => total + (control.severity === 'high' ? 12 : 8), 0);
-  const score = Math.round((weighted / max) * 100);
-  const gaps = controls.filter((control) => control.result === 'gap').length;
-  const unknown = controls.filter((control) => control.result === 'unknown').length;
   return {
     id,
     label,
     version,
-    status: gaps > 0 ? 'needs_attention' : unknown > 3 ? 'watch' : 'pass',
-    score,
-    summary: `${controls.length} ${label} control groups evaluated from repository evidence. ${gaps} gaps and ${unknown} controls need additional evidence.`,
+    status: 'pending',
+    score: null,
+    summary: `${controls.length} ${label} control groups queued for assessment from uploaded repository evidence.`,
     controls
   };
 }
 
 function evaluateAsvsControl(control, signals) {
-  const failEvidence = collectSignalEvidence(signals, control.failWhen || []);
-  if (failEvidence.length > 0) {
-    return asvsControlResult(control, 'gap', failEvidence);
-  }
   const passEvidence = collectSignalEvidence(signals, control.passWhen || []);
-  if (passEvidence.length > 1) {
-    return asvsControlResult(control, 'pass', passEvidence);
-  }
-  if (passEvidence.length === 1) {
-    return asvsControlResult(control, 'partial', passEvidence);
-  }
-  if (/FILES-01$/.test(control.id) && !signals.has('fileHandling')) {
-    return asvsControlResult(control, 'not_applicable', []);
-  }
-  return asvsControlResult(control, 'unknown', []);
+  return asvsControlResult(control, 'pending', passEvidence);
 }
 
 function collectSignalEvidence(signals, names) {
@@ -1628,8 +1306,11 @@ function asvsControlResult(control, result, evidence) {
     severity: control.severity,
     result,
     evidence,
+    evidence_source: evidence.length > 0 ? 'typed_artifact' : 'uploaded_repository',
+    assessment_source: 'pending_assessment',
+    rationale: 'Awaiting assessment against uploaded repository evidence.',
     files: Array.from(new Set(evidence.map((item) => item.path))).slice(0, 8),
-    recommendation: result === 'pass' || result === 'not_applicable' ? '' : control.recommendation
+    recommendation: control.recommendation
   };
 }
 
@@ -1686,9 +1367,9 @@ async function main() {
   const unsupportedScanTypes = [];
   const evidencePaths = parseList(getInput('evidence_paths', '.'));
   const artifactPaths = parseList(getInput('artifact_paths', ''));
-  const maxFiles = parseNumber(getInput('max_files', '120'), 120);
-  const maxBytes = parseNumber(getInput('max_bytes', '750000'), 750000);
-  const maxFileBytes = parseNumber(getInput('max_file_bytes', '24000'), 24000);
+  const maxFiles = parseNumber(getInput('max_files', '300'), 300);
+  const maxBytes = parseNumber(getInput('max_bytes', '2000000'), 2000000);
+  const maxFileBytes = parseNumber(getInput('max_file_bytes', '40000'), 40000);
 
   if (!vaxKey) {
     throw new FatalConfigurationError('VAX key is required. Set `with.vax_key` or env `VAX_KEY` from `${{ secrets.VAX_KEY }}`.');
