@@ -1,6 +1,6 @@
 {
   "name": "vax-evidence-scan-action",
-  "version": "0.1.0",
+  "version": "0.0.8",
   "private": true,
   "description": "Dependency-free GitHub Action that publishes CI evidence to VAX.",
   "type": "commonjs",

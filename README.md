@@ -6,6 +6,10 @@ run URL while the long LLM assessment continues through Pub/Sub.
 
 ## Usage
 
+Create and manage VAX jobs in the hosted frontend at
+[`https://vax.ata.systems`](https://vax.ata.systems). The frontend provides the
+job configuration, VAX key, and run pages used by this action.
+
 ```yaml
 name: VAX vendor assurance
 
@@ -95,5 +99,5 @@ inferred results for the same control deterministically:
 
 Known artifact `type` values also map to local control signals even without an
 explicit `controls` array, so typed evidence remains traceable in the scorecard.
-See [`docs/evidence-manifest.md`](../docs/evidence-manifest.md) for a fuller
-manifest example, including input/output validation evidence.
+See the website docs at `https://vax.ata.systems/docs/evidence-manifest` for a
+fuller manifest example, including input/output validation evidence.
