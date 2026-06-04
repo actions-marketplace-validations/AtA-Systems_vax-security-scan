@@ -1,14 +1,75 @@
 # VAX Evidence Scan Action
 
-Publishes bounded source evidence from GitHub Actions to VAX. The action runs
-local repository scans in CI, uploads evidence to Firebase, and receives a VAX
-run URL while the long LLM assessment continues through Pub/Sub.
+Generate shareable security evidence reports from GitHub Actions.
 
-## Usage
+VAX runs bounded repository evidence collection in CI, uploads the evidence to
+VAX, and publishes a hosted report with findings, evidence references, and
+suggested fixes. It is built for small SaaS teams, technical founders,
+agencies, freelancers, and fractional CTOs that need client-ready security
+reporting from GitHub repositories.
 
-Create and manage VAX jobs in the hosted frontend at
-[`https://vax.ata.systems`](https://vax.ata.systems). The frontend provides the
-job configuration, VAX key, and run pages used by this action.
+## What VAX does
+
+- Runs evidence collection from GitHub Actions on your repository.
+- Supports OWASP ASVS Level 1, OWASP ASVS Level 2, OWASP WSTG,
+  NIST SP 800-161 Rev. 1 Tier 3, CMMC Level 2, and DORA evidence scans.
+- Publishes hosted VAX report pages with findings, evidence traceability, and
+  suggested fixes.
+- Gives you a job-scoped `VAX_KEY` and generated workflow YAML from the VAX app.
+
+## What you get
+
+- A copy-paste GitHub Actions workflow for `.github/workflows/vax.yaml`
+- A per-job `VAX_KEY` secret used by the action
+- A hosted VAX run URL after each scan
+- A shareable report page with findings, evidence, and report history
+- Public demo proof:
+  - App: [`https://vax.ata.systems`](https://vax.ata.systems)
+  - Demo repo: [`AtA-Systems/vax-demo-saas-api`](https://github.com/AtA-Systems/vax-demo-saas-api)
+  - Demo report: [`Public sample report`](https://vax.ata.systems/runs/mJZbTW8XSOc8Ujtxztdy/89DBPnBIyIig2pABgIMH)
+
+## When to use VAX
+
+Use VAX when you want practical, shareable security evidence from a GitHub repo
+without building a manual review packet by hand.
+
+VAX is a good fit when you need to:
+
+- show buyers or clients how security evidence maps back to repository artifacts
+- generate repeatable reports from GitHub Actions
+- document security, supply-chain, or resilience controls from bounded evidence
+- share a sample report before a longer security review process starts
+
+## What VAX is not
+
+VAX is not a formal OWASP certification, penetration test, compliance audit, or
+replacement for a mature AppSec program. It produces ASVS-inspired and
+framework-inspired evidence reports from bounded repository evidence.
+
+## BYOK model selection and cost
+
+VAX is bring-your-own-key. You choose your model and provide the API key in the
+VAX app when you create a job.
+
+- You pay the model provider directly for inference and token usage.
+- VAX charges for job management, CI integration, hosted reports, report
+  history, and sharing controls.
+- Scan cost depends on repository size, evidence bounds, and model choice.
+- In our testing, medium-repository scans have typically cost around $2-$5 in
+  model usage depending on model and repository size. That is a directional
+  example, not a guaranteed price.
+
+## Setup
+
+1. Create a job in the VAX app at [`https://vax.ata.systems`](https://vax.ata.systems).
+2. Choose the scan types and model you want to run.
+3. Add your provider API key in the job setup flow.
+4. Copy the generated workflow into `.github/workflows/vax.yaml`.
+5. Add the generated `VAX_KEY` as a GitHub Actions secret named `VAX_KEY`.
+6. Push code or run the workflow manually.
+7. Open the hosted VAX run URL to review the report.
+
+## Copy-paste workflow example
 
 ```yaml
 name: VAX vendor assurance
@@ -35,17 +96,15 @@ jobs:
 ```
 
 `id-token: write` is required. VAX uses the per-job key to authorize upload to
-the configured assessment and the GitHub OIDC token to capture where the job ran.
-Scan types are selected in the VAX job configuration, not in the workflow file.
+the configured assessment and the GitHub OIDC token to capture where the job
+ran. Scan types are selected in the VAX job configuration, not in the workflow
+file.
 
-The action currently runs OWASP ASVS Level 1, OWASP ASVS Level 2, OWASP WSTG,
-NIST SP 800-161 Rev. 1 Tier 3, CMMC Level 2, and DORA evidence scans locally
-in CI and uploads the structured result plus bounded supporting evidence to VAX.
 The action fails for missing runtime requirements such as `VAX_KEY`, OIDC
 permission, or upload failure. Security assessment gaps are reported on the VAX
 run page instead of failing CI.
 
-## Evidence bounds
+## Evidence bounds and cost controls
 
 VAX starts from the repository root by default so the assessor can discover
 application code, configuration, and tests without requiring hand-selected
@@ -101,3 +160,7 @@ Known artifact `type` values also map to local control signals even without an
 explicit `controls` array, so typed evidence remains traceable in the scorecard.
 See the website docs at `https://vax.ata.systems/docs/evidence-manifest` for a
 fuller manifest example, including input/output validation evidence.
+
+## Support
+
+Questions or setup issues: [`support@ata.systems`](mailto:support@ata.systems)
