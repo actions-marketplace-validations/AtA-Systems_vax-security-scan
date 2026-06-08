@@ -1131,18 +1131,18 @@ function addAsvsSignal(signals, name, filePath, detail, source = 'repository_evi
 function buildScanResults(scanTypes, signals, mappedControls = []) {
   const results = {};
   if (scanTypes.includes('asvs-l1')) {
-    results['asvs-l1'] = buildAsvsRequirementResult('asvs-l1', 'OWASP ASVS Level 1', ASVS_CATALOG.requirements.filter((control) => Number(control.level) <= 1), signals);
+    results['asvs-l1'] = buildAsvsRequirementResult('asvs-l1', 'OWASP ASVS Level 1 inspired', ASVS_CATALOG.requirements.filter((control) => Number(control.level) <= 1), signals);
   }
   if (scanTypes.includes('asvs-l2')) {
-    results['asvs-l2'] = buildAsvsRequirementResult('asvs-l2', 'OWASP ASVS Level 2', ASVS_CATALOG.requirements.filter((control) => Number(control.level) <= 2), signals);
+    results['asvs-l2'] = buildAsvsRequirementResult('asvs-l2', 'OWASP ASVS Level 2 inspired', ASVS_CATALOG.requirements.filter((control) => Number(control.level) <= 2), signals);
   }
   if (scanTypes.includes('wstg')) {
-    results.wstg = buildAsvsResult('wstg', 'OWASP WSTG', WSTG_CONTROLS, signals, 'repository-evidence');
+    results.wstg = buildAsvsResult('wstg', 'OWASP WSTG inspired', WSTG_CONTROLS, signals, 'repository-evidence');
   }
   if (scanTypes.includes('nist-sp800-161r1-tier3')) {
     results['nist-sp800-161r1-tier3'] = buildAsvsResult(
       'nist-sp800-161r1-tier3',
-      'NIST SP 800-161 Rev. 1 Tier 3',
+      'NIST SP 800-161 Rev. 1 Tier 3 inspired',
       NIST_SP800_161R1_TIER3_CONTROLS,
       signals,
       'Rev. 1'
@@ -1151,14 +1151,14 @@ function buildScanResults(scanTypes, signals, mappedControls = []) {
   if (scanTypes.includes('cmmc-level2')) {
     results['cmmc-level2'] = buildAsvsResult(
       'cmmc-level2',
-      'CMMC Level 2',
+      'CMMC Level 2 inspired',
       CMMC_LEVEL2_CONTROLS,
       signals,
       '2.0'
     );
   }
   if (scanTypes.includes('dora')) {
-    results.dora = buildAsvsResult('dora', 'DORA', DORA_CONTROLS, signals, 'EU 2022/2554');
+    results.dora = buildAsvsResult('dora', 'DORA inspired', DORA_CONTROLS, signals, 'EU 2022/2554');
   }
   return mergeMappedControls(results, mappedControls);
 }

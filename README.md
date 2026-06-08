@@ -11,8 +11,8 @@ reporting from GitHub repositories.
 ## What VAX does
 
 - Runs evidence collection from GitHub Actions on your repository.
-- Supports OWASP ASVS Level 1, OWASP ASVS Level 2, OWASP WSTG,
-  NIST SP 800-161 Rev. 1 Tier 3, CMMC Level 2, and DORA evidence scans.
+- Supports OWASP ASVS Level 1 inspired, OWASP ASVS Level 2 inspired, OWASP WSTG inspired,
+  NIST SP 800-161 Rev. 1 Tier 3 inspired, CMMC Level 2 inspired, and DORA inspired evidence scans.
 - Publishes hosted VAX report pages with findings, evidence traceability, and
   suggested fixes.
 - Gives you a job-scoped `VAX_KEY` and generated workflow YAML from the VAX app.
@@ -26,7 +26,7 @@ reporting from GitHub repositories.
 - Public demo proof:
   - App: [`https://vax.ata.systems`](https://vax.ata.systems)
   - Demo repo: [`AtA-Systems/vax-demo-saas-api`](https://github.com/AtA-Systems/vax-demo-saas-api)
-  - Demo report: [`Public sample report`](https://vax.ata.systems/runs/mJZbTW8XSOc8Ujtxztdy/89DBPnBIyIig2pABgIMH)
+  - Demo report: [`Public sample report`](https://vax.ata.systems/runs/x5WfWTrMRmghDNpIeSxi/aE5MDziBtXtiNvEUejDn)
 
 ## When to use VAX
 
